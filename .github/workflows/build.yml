@@ -1,0 +1,52 @@
+name: Build Saylo
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '6.0'
+
+      - name: Run setup script
+        run: ./scripts/setup.sh
+
+      - name: Build CLI
+        run: swift build -c release --product saylo-cli
+
+      - name: Build App
+        run: swift build -c release --product Saylo
+
+      - name: Create App Bundle
+        run: ./scripts/bundle.sh
+
+      - name: Upload CLI
+        uses: actions/upload-artifact@v4
+        with:
+          name: saylo-cli
+          path: .build/release/saylo-cli
+
+      - name: Upload App Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Saylo.app
+          path: .build/Saylo.app
+
+      - name: Create Release
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "build-${{ github.run_number }}"
+          name: "Saylo Build ${{ github.run_number }}"
+          files: |
+            .build/release/saylo-cli
+            .build/Saylo.app
+          draft: true
