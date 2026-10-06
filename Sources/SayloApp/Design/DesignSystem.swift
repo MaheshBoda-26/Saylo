@@ -29,6 +29,13 @@ public enum DesignSystem {
         public static let segment = SwiftUI.Color(hex: "#DAD8D0")
         /// Destructive tint behind a warning chip.
         public static let dangerSoft = SwiftUI.Color(hex: "#F6E9E6")
+        /// Selected sidebar row fill (warm taupe, Flow reference).
+        public static let sidebarSelected = SwiftUI.Color(hex: "#EAE6D9")
+        /// Stats rail card fill (warm beige, Flow reference).
+        public static let statCard = SwiftUI.Color(hex: "#EFE9DC")
+        /// "Pro" badge lavender.
+        public static let proBadgeBg = SwiftUI.Color(hex: "#EBDFFF")
+        public static let proBadgeText = SwiftUI.Color(hex: "#6D28D9")
     }
 
     // MARK: - Bundled Fonts

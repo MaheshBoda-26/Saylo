@@ -13,38 +13,67 @@ public struct MainWindow: View {
 
     @State private var tab: SayloTab = .dictation
     @State private var showingSettings = false
+    /// Reference behavior: starts expanded, the title-bar toggle
+    /// collapses it to an icon-only rail and back.
+    @State private var sidebarExpanded = true
 
     public init() {}
 
     public var body: some View {
-        VStack(spacing: 0) {
-            SayloWindowChrome(title: tab.chromeTitle, badge: tab.chromeBadge)
+        // Reference layout: warm window, sidebar flush left, content in an
+        // inset white card with 20pt rounded corners.
+        HStack(spacing: 0) {
+            SayloSidebar(
+                tab: $tab,
+                showingSettings: $showingSettings,
+                expanded: sidebarExpanded
+            )
+            .frame(width: sidebarExpanded ? 224 : 84)
 
-            HStack(spacing: 0) {
-                SayloSidebar(tab: $tab, showingSettings: $showingSettings)
-                    .frame(width: 210)
-
-                Group {
-                    switch tab {
-                    case .dictation:
-                        DictationHomeView(onOpenSettings: { showingSettings = true })
-                    case .insights:
-                        InsightsContentView()
-                    case .dictionary:
-                        DictionaryContentView()
-                            .environmentObject(dictionaryStore)
-                    }
+            Group {
+                switch tab {
+                case .dictation:
+                    DictationHomeView(onOpenSettings: { showingSettings = true })
+                case .insights:
+                    InsightsContentView()
+                case .dictionary:
+                    DictionaryContentView()
+                        .environmentObject(dictionaryStore)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(DesignSystem.Color.surface)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(DesignSystem.Color.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(DesignSystem.Color.line, lineWidth: 1)
+            )
+            .padding(.top, 12)
+            .padding(.bottom, 12)
+            .padding(.trailing, 12)
+            .padding(.leading, 8)
         }
-        .frame(minWidth: 1080, minHeight: 680)
+        .animation(.easeOut(duration: 0.22), value: sidebarExpanded)
+        .frame(minWidth: 960, minHeight: 680)
         .background(DesignSystem.Color.ground)
         .tint(DesignSystem.Color.accent)
         // Paper design is light-mode only: pin it so native controls
         // (pickers, menus) draw dark text even in system Dark Mode.
         .preferredColorScheme(.light)
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.22)) {
+                        sidebarExpanded.toggle()
+                    }
+                } label: {
+                    Image(systemName: "sidebar.left")
+                        .font(.system(size: 15))
+                        .foregroundStyle(DesignSystem.Color.ink)
+                }
+                .help(sidebarExpanded ? "Collapse sidebar" : "Expand sidebar")
+            }
+        }
         .sheet(isPresented: $showingSettings) {
             SettingsWindow()
                 .environmentObject(preferencesStore)
@@ -69,11 +98,11 @@ enum SayloTab: String, CaseIterable, Identifiable {
         }
     }
 
-    var emoji: String {
+    var systemIcon: String {
         switch self {
-        case .dictation: return "🎙"
-        case .insights: return "📊"
-        case .dictionary: return "📖"
+        case .dictation: return "mic"
+        case .insights: return "chart.bar.xaxis"
+        case .dictionary: return "book"
         }
     }
 
@@ -102,55 +131,191 @@ enum SayloTab: String, CaseIterable, Identifiable {
 private struct SayloSidebar: View {
     @Binding var tab: SayloTab
     @Binding var showingSettings: Bool
+    let expanded: Bool
 
     var body: some View {
-        VStack {
-            VStack(spacing: 4) {
+        Group {
+            if expanded {
+                expandedBody
+            } else {
+                railBody
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .background(DesignSystem.Color.chrome)
+    }
+
+    private var expandedBody: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                SayloMark()
+                Text("Saylo")
+                    .font(DesignSystem.Typography.sans(22, weight: .semibold))
+                    .tracking(-0.01)
+                    .foregroundStyle(DesignSystem.Color.ink)
+            }
+            .frame(height: 32)
+            .padding(.top, 40)
+            .padding(.horizontal, 24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 16)
+
+            VStack(spacing: 2) {
                 ForEach(SayloTab.allCases) { t in
-                    SayloNavRow(title: t.title, emoji: t.emoji, isActive: tab == t) {
+                    FlowNavRow(systemIcon: t.systemIcon, title: t.title, isActive: tab == t) {
                         tab = t
                     }
                 }
             }
+            .padding(.horizontal, 12)
+
             Spacer(minLength: 0)
-            VStack(spacing: 12) {
+
+            VStack(spacing: 2) {
                 if tab == .dictation {
                     WhistleEngineCard()
+                        .padding(.bottom, 10)
                 }
-                VStack(spacing: 4) {
-                    Divider().overlay(DesignSystem.Color.line)
-                        .padding(.top, 10)
-                    SidebarFooterRow(emoji: "⚙", title: "Settings") { showingSettings = true }
+                Divider()
+                    .overlay(DesignSystem.Color.line)
+                    .padding(.bottom, 6)
+                SidebarFooterRow(systemIcon: "gearshape", title: "Settings") { showingSettings = true }
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 16)
+        }
+    }
+
+    private var railBody: some View {
+        VStack(spacing: 0) {
+            SayloMark()
+                .padding(.top, 40)
+                .padding(.bottom, 22)
+                .frame(maxWidth: .infinity)
+
+            VStack(spacing: 6) {
+                ForEach(SayloTab.allCases) { t in
+                    FlowRailIcon(systemIcon: t.systemIcon, isActive: tab == t) {
+                        tab = t
+                    }
                 }
             }
-        }
-        .padding(.vertical, 20)
-        .padding(.horizontal, 14)
-        .background(DesignSystem.Color.chrome)
-        .overlay(alignment: .trailing) {
-            Divider().overlay(DesignSystem.Color.line)
+
+            Spacer(minLength: 0)
+
+            VStack(spacing: 6) {
+                RailIconButton(systemIcon: "gearshape") { showingSettings = true }
+            }
+            .padding(.bottom, 18)
         }
     }
 }
 
+/// Rail icon: 40×40 rounded-square, 19pt glyph,
+/// active = warm taupe fill, ink glyph.
+private struct FlowRailIcon: View {
+    let systemIcon: String
+    var isActive: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemIcon)
+                .font(.system(size: 19, weight: .regular))
+                .foregroundStyle(DesignSystem.Color.ink)
+                .frame(width: 40, height: 40)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(isActive ? DesignSystem.Color.sidebarSelected : .clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(title)
+    }
+
+    private var title: String {
+        switch systemIcon {
+        case "mic": return "Dictation"
+        case "chart.bar.xaxis": return "Insights"
+        case "book": return "Dictionary"
+        default: return ""
+        }
+    }
+}
+
+private struct RailIconButton: View {
+    let systemIcon: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemIcon)
+                .font(.system(size: 17, weight: .regular))
+                .foregroundStyle(DesignSystem.Color.ink)
+                .frame(width: 40, height: 40)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Expanded nav row: 38pt, icon 17 + label 15, 10px gap,
+/// active = warm taupe fill + semibold ink text.
+private struct FlowNavRow: View {
+    let systemIcon: String
+    let title: String
+    var isActive: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: systemIcon)
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundStyle(DesignSystem.Color.ink)
+                    .frame(width: 22, alignment: .center)
+                Text(title)
+                    .font(DesignSystem.Typography.sans(
+                        15,
+                        weight: isActive ? DesignSystem.Typography.weightSemibold : DesignSystem.Typography.weightRegular
+                    ))
+                    .foregroundStyle(DesignSystem.Color.ink)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .frame(height: 38, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isActive ? DesignSystem.Color.sidebarSelected : .clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 private struct SidebarFooterRow: View {
-    let emoji: String
+    let systemIcon: String
     let title: String
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: DesignSystem.Spacing.s2) {
-                Text(emoji)
-                    .font(.system(size: DesignSystem.Typography.xs))
-                    .foregroundStyle(DesignSystem.Color.muted)
+            HStack(spacing: 10) {
+                Image(systemName: systemIcon)
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(DesignSystem.Color.ink)
+                    .frame(width: 22, alignment: .center)
                 Text(title)
-                    .font(DesignSystem.Typography.sans(DesignSystem.Typography.xs))
+                    .font(DesignSystem.Typography.sans(14))
                     .foregroundStyle(DesignSystem.Color.ink)
                 Spacer(minLength: 0)
             }
-            .padding(.vertical, DesignSystem.Spacing.s1)
-            .padding(.horizontal, 6)
+            .padding(.vertical, 7)
+            .padding(.horizontal, 12)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -191,34 +356,57 @@ private struct DictationHomeView: View {
 
     let onOpenSettings: () -> Void
 
+    @State private var showSearch = false
+
     var body: some View {
         HStack(spacing: 0) {
             // Center timeline
             ScrollView {
                 VStack(alignment: .leading, spacing: DesignSystem.Spacing.s6) {
                     Text("Welcome back, Mahesh")
-                        .sayloHeadline()
+                        .font(DesignSystem.Typography.sans(28, weight: .semibold))
+                        .tracking(-0.02)
+                        .foregroundStyle(DesignSystem.Color.ink)
 
                     VStack(alignment: .leading, spacing: DesignSystem.Spacing.s3) {
                         HStack {
                             SayloSectionLabel("Today")
                             Spacer(minLength: 0)
+                            Button {
+                                withAnimation(.easeOut(duration: 0.15)) {
+                                    showSearch.toggle()
+                                }
+                            } label: {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(DesignSystem.Color.muted)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Search dictations")
+                        }
+                        if showSearch {
                             SearchField(text: $historyStore.searchQuery, placeholder: "Search…")
-                                .frame(width: 200)
                         }
                         if timelineEntries.isEmpty {
                             EmptyTimelineView(hotkey: preferencesStore.hotkey.displayName)
                         } else {
                             VStack(spacing: 0) {
-                                ForEach(timelineEntries) { entry in
-                                    TimelineRow(entry: entry)
+                                ForEach(Array(timelineEntries.enumerated()), id: \.element.id) { index, entry in
+                                    TimelineRow(entry: entry, showDivider: index < timelineEntries.count - 1)
                                 }
                             }
+                            .background(DesignSystem.Color.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(DesignSystem.Color.line, lineWidth: 1)
+                            )
                         }
                     }
                 }
-                .padding(.vertical, DesignSystem.Spacing.s6)
-                .padding(.horizontal, DesignSystem.Spacing.s8)
+                .padding(.top, 28)
+                .padding(.bottom, DesignSystem.Spacing.s6)
+                .padding(.horizontal, 40)
             }
             .frame(maxWidth: .infinity)
 
@@ -241,25 +429,71 @@ private struct TimelineRow: View {
     @EnvironmentObject private var dictationController: DictationController
 
     let entry: DictationEntry
+    var showDivider = true
+
+    @State private var isHovered = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: DesignSystem.Spacing.s6) {
+        HStack(alignment: .top, spacing: DesignSystem.Spacing.s4) {
             Text(timeString)
                 .font(DesignSystem.Typography.mono(DesignSystem.Typography.xs))
                 .foregroundStyle(DesignSystem.Color.muted)
-                .frame(width: 55, alignment: .leading)
+                .frame(width: 64, alignment: .leading)
+                .padding(.top, 2)
             Text(entry.text)
                 .font(DesignSystem.Typography.sans(DesignSystem.Typography.base))
                 .lineSpacing(DesignSystem.Typography.bodyLineSpacing)
                 .foregroundStyle(DesignSystem.Color.ink)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
+            if isHovered {
+                HStack(spacing: 14) {
+                    Button {
+                        Task { await dictationController.reinsert(entry.text) }
+                    } label: {
+                        Image(systemName: "play")
+                            .font(.system(size: 14))
+                            .foregroundStyle(DesignSystem.Color.ink)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Re-insert")
+                    Button {
+                        historyStore.copyText(entry.text)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 14))
+                            .foregroundStyle(DesignSystem.Color.ink)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Copy")
+                    Button {
+                        historyStore.deleteEntry(entry)
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 14))
+                            .foregroundStyle(DesignSystem.Color.muted)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("More actions")
+                }
+                .transition(.opacity)
+            }
         }
-        .padding(.vertical, DesignSystem.Spacing.s3)
+        .padding(.vertical, 14)
+        .padding(.horizontal, 20)
         .overlay(alignment: .bottom) {
-            Divider().overlay(DesignSystem.Color.line)
+            if showDivider {
+                Divider()
+                    .overlay(DesignSystem.Color.line)
+                    .padding(.horizontal, 20)
+            }
         }
         .contentShape(Rectangle())
+        .onHover { inside in
+            withAnimation(.easeOut(duration: 0.12)) {
+                isHovered = inside
+            }
+        }
         .contextMenu {
             Button("Copy") { historyStore.copyText(entry.text) }
             Button("Copy Raw") { historyStore.copyText(entry.rawText) }
@@ -306,22 +540,21 @@ private struct WidgetRail: View {
     var body: some View {
         ScrollView {
             VStack(spacing: DesignSystem.Spacing.s6) {
-                VStack(alignment: .leading, spacing: DesignSystem.Spacing.s4) {
+                VStack(alignment: .leading, spacing: 18) {
                     WidgetStat(value: totalWordsString, label: "total words")
-                    WidgetStat(value: "\(wpmAverage)", label: "wpm average")
+                    WidgetStat(value: "\(wpmAverage)", label: "wpm")
                     WidgetStat(value: "\(dayStreak)", label: "day streak")
                 }
-                .padding(DesignSystem.Spacing.s4)
+                .padding(.horizontal, 22)
+                .padding(.vertical, 20)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .sayloCard()
+                .background(DesignSystem.Color.statCard)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
             }
             .padding(.vertical, DesignSystem.Spacing.s6)
             .padding(.horizontal, DesignSystem.Spacing.s4)
         }
-        .background(DesignSystem.Color.chrome)
-        .overlay(alignment: .leading) {
-            Divider().overlay(DesignSystem.Color.line)
-        }
+        .background(DesignSystem.Color.ground)
     }
 
     private var totalWords: Int {
@@ -351,16 +584,12 @@ private struct WidgetStat: View {
     let label: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DesignSystem.Spacing.s1) {
+        HStack(alignment: .firstTextBaseline, spacing: DesignSystem.Spacing.s2) {
             Text(value)
-                .font(DesignSystem.Typography.sans(
-                    DesignSystem.Typography.hero,
-                    weight: DesignSystem.Typography.weightBold
-                ))
-                .tracking(DesignSystem.Typography.trackingTitle)
+                .font(DesignSystem.Typography.serif(30))
                 .foregroundStyle(DesignSystem.Color.ink)
             Text(label)
-                .font(DesignSystem.Typography.sans(DesignSystem.Typography.xs))
+                .font(DesignSystem.Typography.sans(14))
                 .foregroundStyle(DesignSystem.Color.muted)
         }
     }
