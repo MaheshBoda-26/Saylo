@@ -37,11 +37,11 @@ public actor WhistleEngine {
 
     /// Warms up the engine pipeline by transcribing a short slice of silence.
     public func warmUp() throws {
-        _ = try transcribeChunk([Float](repeating: 0, count: 1600), language: nil, keywords: [])
+        _ = try transcribeChunk([Float](repeating: 0, count: 1600), language: "en", keywords: [])
     }
 
     /// Transcribes 16 kHz mono PCM of any length; clips over 30 s are split at quiet points.
-    public func transcribe(_ pcm: [Float], language: String? = nil, keywords: [String] = []) throws -> Transcript {
+    public func transcribe(_ pcm: [Float], language: String? = "en", keywords: [String] = []) throws -> Transcript {
         var texts: [String] = []
         var lang = ""
         var ttft = 0.0

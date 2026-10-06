@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import Foundation
+import Accelerate
 
 /// Captures the default microphone and converts it to 16 kHz mono Float32 for Whistle.
 public final class AudioRecorder: @unchecked Sendable {
@@ -9,14 +10,43 @@ public final class AudioRecorder: @unchecked Sendable {
     private var _level: Float = 0
     private let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000,
                                        channels: 1, interleaved: false)!
+    private var hpState: [Float] = [0, 0]
 
     public init() {}
 
     /// Current RMS level (0...1), for UI meters.
     public var level: Float { lock.withLock { _level } }
 
+    private func highPass80Hz(_ samples: inout [Float]) {
+        let fc: Float = 80.0 / 16000.0
+        let rc: Float = 1.0 / (2.0 * .pi * fc)
+        let alpha: Float = rc / (rc + 1.0 / 16000.0)
+        var yPrev = hpState[0]
+        var xPrev = hpState[1]
+        for i in 0..<samples.count {
+            let x = samples[i]
+            let y = alpha * (yPrev + x - xPrev)
+            samples[i] = y
+            yPrev = y
+            xPrev = x
+        }
+        hpState[0] = yPrev
+        hpState[1] = xPrev
+    }
+
+    private func normalizeToMinus20dBFS(_ samples: inout [Float]) {
+        var rms: Float = 0
+        vDSP_measqv(samples, 1, &rms, vDSP_Length(samples.count))
+        rms = sqrt(rms)
+        guard rms > 0 else { return }
+        let targetRMS: Float = pow(10.0, -20.0 / 20.0)
+        let gain = targetRMS / rms
+        var clampedGain = min(gain, 10.0)
+        vDSP_vsmul(samples, 1, &clampedGain, &samples, 1, vDSP_Length(samples.count))
+    }
+
     public func start() throws {
-        lock.withLock { buffer.removeAll(keepingCapacity: true) }
+        lock.withLock { buffer.removeAll(keepingCapacity: true); hpState = [0, 0] }
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard let converter = AVAudioConverter(from: format, to: target) else {
@@ -33,7 +63,9 @@ public final class AudioRecorder: @unchecked Sendable {
                 fed = true; status.pointee = .haveData; return pcm
             }
             guard let ch = out.floatChannelData?[0] else { return }
-            let samples = Array(UnsafeBufferPointer(start: ch, count: Int(out.frameLength)))
+            var samples = Array(UnsafeBufferPointer(start: ch, count: Int(out.frameLength)))
+            self.highPass80Hz(&samples)
+            self.normalizeToMinus20dBFS(&samples)
             let rms = sqrt(samples.reduce(0) { $0 + $1 * $1 } / Float(max(samples.count, 1)))
             self.lock.withLock {
                 self.buffer.append(contentsOf: samples)

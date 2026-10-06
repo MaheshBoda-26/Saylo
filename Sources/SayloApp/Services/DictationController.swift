@@ -169,8 +169,13 @@ public final class DictationController: ObservableObject {
             // Apply post-processing corrections
             let processedText = dictionaryStore.applyCorrections(to: transcript.text)
 
-            // Apply text post-processor (capitalization, punctuation)
-            let postProcessor = TextPostProcessor(replacements: [:])
+            // Apply text post-processor (capitalization, punctuation, phonetic corrections, context-aware formatting)
+            let appBundleID = getFrontmostAppBundleID()
+            let postProcessor = TextPostProcessor(
+                replacements: dictionaryStore.correctionPairs.reduce(into: [:]) { $0[$1.pattern] = $1.replacement },
+                removingFillers: true,
+                appBundleID: appBundleID
+            )
             let finalText = postProcessor.process(processedText.corrected)
 
             // Insert text
