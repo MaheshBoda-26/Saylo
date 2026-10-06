@@ -458,46 +458,45 @@ struct InsightsContentView: View {
 
                 // Bottom row: desktop usage + streak
                 HStack(alignment: .top, spacing: 16) {
-                    InsightsCard(title: nil) {
-                        HStack {
-                            Text("Desktop usage")
-                                .font(.custom(DesignSystem.Typography.sans, size: 16))
-                                .fontWeight(.bold)
-                                .foregroundStyle(DesignSystem.Color.ink)
-                            Spacer(minLength: 0)
-                            Text("TOTAL APPS USED | \(appTotals.count)")
-                                .font(.custom(DesignSystem.Typography.mono, size: 10))
+                    InsightsCard(
+                        title: "WHERE YOU DICTATE",
+                        trend: appTotals.isEmpty ? nil : "\(appTotals.count) \(appTotals.count == 1 ? "app" : "apps")"
+                    ) {
+                        if appTotals.isEmpty {
+                            Text("Dictate in any app and it will show up here.")
+                                .font(.custom(DesignSystem.Typography.serif, size: 13))
+                                .italic()
                                 .foregroundStyle(DesignSystem.Color.muted)
-                        }
-                        VStack(spacing: 10) {
-                            ForEach(Array(appTotals.prefix(3).enumerated()), id: \.element.app) { index, row in
-                                VStack(spacing: 4) {
-                                    HStack {
-                                        Text("\(row.emoji) \(row.label)")
-                                            .font(.custom(DesignSystem.Typography.sans, size: 12))
-                                            .foregroundStyle(DesignSystem.Color.ink)
-                                        Spacer(minLength: 0)
-                                        Text("\(Int(row.share * 100))% (\(row.words))")
-                                            .font(.custom(DesignSystem.Typography.sans, size: 12))
-                                            .foregroundStyle(DesignSystem.Color.muted)
+                        } else {
+                            VStack(spacing: DesignSystem.Spacing.s3) {
+                                ForEach(appTotals.prefix(3)) { row in
+                                    VStack(spacing: 6) {
+                                        HStack(alignment: .firstTextBaseline) {
+                                            Text(row.label)
+                                                .font(.custom(DesignSystem.Typography.sans, size: 13))
+                                                .fontWeight(.medium)
+                                                .foregroundStyle(DesignSystem.Color.ink)
+                                                .lineLimit(1)
+                                            Spacer(minLength: 0)
+                                            Text("\(row.words.formatted(.number.grouping(.automatic))) words")
+                                                .font(.custom(DesignSystem.Typography.mono, size: 11))
+                                                .foregroundStyle(DesignSystem.Color.muted)
+                                            Text("\(Int((row.share * 100).rounded()))%")
+                                                .font(.custom(DesignSystem.Typography.mono, size: 11))
+                                                .foregroundStyle(DesignSystem.Color.ink)
+                                                .frame(width: 34, alignment: .trailing)
+                                        }
+                                        SayloProgressBar(value: row.share, fill: DesignSystem.Color.accent)
                                     }
-                                    SayloProgressBar(value: row.share, fill: row.color)
                                 }
                             }
                         }
                     }
 
-                    InsightsCard(title: nil) {
-                        HStack {
-                            Text("\(streak) day streak")
-                                .font(.custom(DesignSystem.Typography.sans, size: 16))
-                                .fontWeight(.bold)
-                                .foregroundStyle(DesignSystem.Color.ink)
-                            Spacer(minLength: 0)
-                            Text("LONGEST STREAK | \(longestStreak) DAYS")
-                                .font(.custom(DesignSystem.Typography.mono, size: 10))
-                                .foregroundStyle(DesignSystem.Color.muted)
-                        }
+                    InsightsCard(
+                        title: "DICTATION RHYTHM",
+                        trend: "\(streak) day streak · best \(longestStreak)"
+                    ) {
                         UsageHeatmap(dailyWords: dailyWordCounts)
                     }
                 }
@@ -546,25 +545,23 @@ struct InsightsContentView: View {
         EntryStats.longestStreak(for: historyStore.entries.map(\.date))
     }
 
-    private var appTotals: [(app: String, label: String, emoji: String, words: Int, share: Double, color: SwiftUI.Color)] {
+    private var appTotals: [AppTotal] {
         var words: [String: Int] = [:]
         for entry in historyStore.entries {
             words[EntryStats.appName(for: entry), default: 0] += EntryStats.wordCount(entry.text)
         }
         let total = max(1, words.values.reduce(0, +))
-        let sorted = words.sorted { $0.value > $1.value }
-        let palette: [SwiftUI.Color] = [DesignSystem.Color.accent, DesignSystem.Color.slateBar, DesignSystem.Color.paleBar]
-        let emojiFor = ["🤖", "⚙", "💬"]
-        let labelFor = ["AI PROMPTS", "OTHER TASKS", "PERSONAL MESSAGES"]
-        return sorted.enumerated().map { i, kv in
-            (app: kv.key,
-             label: i < 3 ? labelFor[i] : kv.key.uppercased(),
-             emoji: i < 3 ? emojiFor[i] : "•",
-             words: kv.value,
-             share: Double(kv.value) / Double(total),
-             color: palette[i % palette.count])
-        }
+        return words
+            .sorted { $0.value > $1.value }
+            .map { AppTotal(label: $0.key, words: $0.value, share: Double($0.value) / Double(total)) }
     }
+}
+
+private struct AppTotal: Identifiable {
+    let label: String
+    let words: Int
+    let share: Double
+    var id: String { label }
 }
 
 private struct InsightsCard<Content: View>: View {
