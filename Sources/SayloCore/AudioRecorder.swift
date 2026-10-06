@@ -1,6 +1,5 @@
 @preconcurrency import AVFoundation
 import Foundation
-import Accelerate
 
 /// Captures the default microphone and converts it to 16 kHz mono Float32 for Whistle.
 public final class AudioRecorder: @unchecked Sendable {
@@ -11,6 +10,9 @@ public final class AudioRecorder: @unchecked Sendable {
     private let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000,
                                        channels: 1, interleaved: false)!
     private var hpState: [Float] = [0, 0]
+
+    /// True when the most recent `stop()` rejected the clip as silence.
+    public private(set) var wasSilent = false
 
     public init() {}
 
@@ -34,19 +36,8 @@ public final class AudioRecorder: @unchecked Sendable {
         hpState[1] = xPrev
     }
 
-    private func normalizeToMinus20dBFS(_ samples: inout [Float]) {
-        var rms: Float = 0
-        vDSP_measqv(samples, 1, &rms, vDSP_Length(samples.count))
-        rms = sqrt(rms)
-        guard rms > 0 else { return }
-        let targetRMS: Float = pow(10.0, -20.0 / 20.0)
-        let gain = targetRMS / rms
-        var clampedGain = min(gain, 10.0)
-        vDSP_vsmul(samples, 1, &clampedGain, &samples, 1, vDSP_Length(samples.count))
-    }
-
     public func start() throws {
-        lock.withLock { buffer.removeAll(keepingCapacity: true); hpState = [0, 0] }
+        lock.withLock { buffer.removeAll(keepingCapacity: true); hpState = [0, 0]; wasSilent = false }
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard let converter = AVAudioConverter(from: format, to: target) else {
@@ -65,22 +56,37 @@ public final class AudioRecorder: @unchecked Sendable {
             guard let ch = out.floatChannelData?[0] else { return }
             var samples = Array(UnsafeBufferPointer(start: ch, count: Int(out.frameLength)))
             self.highPass80Hz(&samples)
-            self.normalizeToMinus20dBFS(&samples)
-            let rms = sqrt(samples.reduce(0) { $0 + $1 * $1 } / Float(max(samples.count, 1)))
+            // Level is read before any gain so the meter reflects the true input.
+            let rms = SpeechActivity.rms(samples)
             self.lock.withLock {
                 self.buffer.append(contentsOf: samples)
-                self._level = min(1, rms * 4)
+                self._level = SpeechActivity.meterLevel(rms: rms)
             }
         }
         engine.prepare()
         try engine.start()
     }
 
-    /// Stops capture and returns the recorded 16 kHz mono samples.
+    /// Stops capture and returns the recorded 16 kHz mono samples, level-normalized
+    /// once for the whole clip. Returns an empty array when the clip held no speech,
+    /// so silence never reaches the model — speech models answer non-speech audio
+    /// with invented phrases like "Thank you." or "Bye.".
     public func stop() -> [Float] {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
-        return lock.withLock { _level = 0; return buffer }
+        return lock.withLock {
+            _level = 0
+            guard !buffer.isEmpty else { return [] }
+
+            let reference = SpeechActivity.peakWindowRMS(buffer)
+            guard reference >= SpeechActivity.speechThreshold else {
+                wasSilent = true
+                return []
+            }
+            wasSilent = false
+            SpeechActivity.normalize(&buffer, reference: reference)
+            return buffer
+        }
     }
 
     /// Reads any audio file and converts it to 16 kHz mono Float32.

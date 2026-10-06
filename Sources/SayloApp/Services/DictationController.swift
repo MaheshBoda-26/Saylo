@@ -98,9 +98,13 @@ public final class DictationController: ObservableObject {
         recordingDuration = Date().timeIntervalSince(recordingStartTime ?? Date())
 
         if recordedAudio.isEmpty || recordingDuration < 0.3 {
-            // Too short, treat as cancel
+            // Too short, or the recorder found no speech above the noise floor.
             state = .idle
-            logger.info("Recording too short, cancelled")
+            if audioRecorder.wasSilent {
+                logger.info("No speech detected, cancelled")
+            } else {
+                logger.info("Recording too short, cancelled")
+            }
             return
         }
 
@@ -177,6 +181,15 @@ public final class DictationController: ObservableObject {
                 appBundleID: appBundleID
             )
             let finalText = postProcessor.process(processedText.corrected)
+
+            // Speech models still emit a hallucinated phrase for some non-speech
+            // audio that clears the energy gate. Nothing to insert means nothing
+            // to record — an empty row would only ever be noise in the timeline.
+            guard !finalText.isEmpty else {
+                state = .idle
+                logger.info("No speech recognised, nothing inserted")
+                return
+            }
 
             // Insert text
             state = .inserting
