@@ -1,5 +1,10 @@
 import SwiftUI
+import CoreText
 
+/// Paper V1 — "Mineral (Verdigris)".
+///
+/// Limestone and slate neutrals, one verdigris accent, Inter for the work,
+/// Instrument Serif for the voice, Geist Mono for keys and metrics.
 public enum DesignSystem {
 
     // MARK: - Colors
@@ -14,12 +19,70 @@ public enum DesignSystem {
         public static let accent = SwiftUI.Color(hex: "#3E7C6C")
         public static let accentSoft = SwiftUI.Color(hex: "#E6EFEC")
         public static let danger = SwiftUI.Color(hex: "#B5483B")
-        public static let heroSub = SwiftUI.Color(hex: "#9CA3AF")
+        /// Secondary copy on an ink surface — surface at muted opacity.
+        public static let heroSub = SwiftUI.Color(hex: "#A5A39B")
+        /// Chip fill inside an ink card.
         public static let chipDark = SwiftUI.Color(hex: "#2C302E")
-        public static let track = SwiftUI.Color(hex: "#E5E7EB")
-        public static let slateBar = SwiftUI.Color(hex: "#64748B")
-        public static let paleBar = SwiftUI.Color(hex: "#94A3B8")
-        public static let segment = SwiftUI.Color(hex: "#CBD5E1")
+        /// Empty track (progress bar, toggle off, heatmap cell).
+        public static let track = SwiftUI.Color(hex: "#E5E3DD")
+        /// Inert bar/segment sitting next to an accent fill.
+        public static let segment = SwiftUI.Color(hex: "#DAD8D0")
+        /// Destructive tint behind a warning chip.
+        public static let dangerSoft = SwiftUI.Color(hex: "#F6E9E6")
+    }
+
+    // MARK: - Bundled Fonts
+
+    /// Registers Inter, Instrument Serif and Geist Mono from `Resources/Fonts`
+    /// with CoreText. Called once from the app entry point — without it every
+    /// `.custom(DesignSystem.Typography.*)` silently falls back to the system font.
+    public static func registerBundledFonts() {
+        for url in bundledFontURLs() {
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        }
+    }
+
+private static func bundledFontURLs() -> [URL] {
+        let sourceRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // Design
+            .deletingLastPathComponent()   // SayloApp
+            .appendingPathComponent("Resources", isDirectory: true)
+
+        var roots: [URL] = [sourceRoot]
+        if let resourceURL = Bundle.main.resourceURL { roots.append(resourceURL) }
+        roots.append(Bundle.main.bundleURL)
+
+        // SwiftPM nests the copied `Resources` directory differently between
+        // `swift run` and the assembled .app, so look for any `Fonts`
+        // directory a few levels below each root.
+        var directories: [URL] = []
+        for root in roots {
+            guard let enumerator = FileManager.default.enumerator(
+                at: root,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+            for case let url as URL in enumerator {
+                if url.lastPathComponent == "Fonts" {
+                    directories.append(url)
+                    enumerator.skipDescendants()
+                } else if enumerator.level > 4 {
+                    enumerator.skipDescendants()
+                }
+            }
+        }
+
+        var files: [URL] = []
+        for directory in directories {
+            guard let entries = try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil
+            ) else { continue }
+            files.append(contentsOf: entries.filter {
+                ["ttf", "otf"].contains($0.pathExtension.lowercased())
+            })
+        }
+        return files
     }
 
     // MARK: - Typography
@@ -29,25 +92,51 @@ public enum DesignSystem {
         public static let serif = "Instrument Serif"
         public static let mono = "Geist Mono"
 
+        /// Inter and Geist Mono ship legacy-style family names for their
+        /// non-RIBBI cuts, so weight has to be resolved at the family level.
+        private static func family(_ base: String, weight: Font.Weight) -> String {
+            guard base == sans || base == mono else { return base }
+            switch weight {
+            case .medium:
+                return base == mono ? "Geist Mono Medium" : "Inter Medium"
+            case .semibold:
+                return base == mono ? "Geist Mono Medium" : "Inter SemiBold"
+            case .bold, .heavy, .black:
+                // Inter's bold cut lives inside the base family.
+                return base
+            default:
+                return base
+            }
+        }
+
         public static func sans(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-            .custom(sans, size: size).weight(weight)
+            .custom(family(sans, weight: weight), size: size)
         }
 
         public static func serif(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-            .custom(serif, size: size).weight(weight)
+            .custom(family(serif, weight: weight), size: size)
         }
 
         public static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-            .custom(mono, size: size).weight(weight)
+            .custom(family(mono, weight: weight), size: size)
         }
 
         // Size tokens
+        public static let micro: CGFloat = 10
+        public static let nano: CGFloat = 9
         public static let xs: CGFloat = 12
         public static let sm: CGFloat = 13
         public static let base: CGFloat = 15
         public static let lg: CGFloat = 20
         public static let xl: CGFloat = 32
         public static let display: CGFloat = 72
+
+        /// Serif-italic voice size ("You spoke 4,812 words this week.").
+        public static let serifLarge: CGFloat = 40
+        /// Serif-italic accent word inside an ink card.
+        public static let serifAccent: CGFloat = 28
+        /// Ink-card headline, sits between Title and Headline.
+        public static let hero: CGFloat = 24
 
         // Weight tokens
         public static let weightRegular: Font.Weight = .regular
@@ -57,10 +146,14 @@ public enum DesignSystem {
 
         // Tracking
         public static let trackingTight = -0.03
+        public static let trackingDisplay = -0.04
+        public static let trackingTitle = -0.01
         public static let trackingWide = 0.08
 
         // Line height
         public static let leadingBody: CGFloat = 22
+        /// Extra leading added to 15pt body copy to reach `leadingBody`.
+        public static let bodyLineSpacing: CGFloat = 4
     }
 
     // MARK: - Spacing
@@ -100,7 +193,23 @@ public enum DesignSystem {
     // MARK: - Opacity
 
     public enum Opacity {
+        public static let faint: CGFloat = 0.12
+        public static let subtle: CGFloat = 0.35
         public static let muted: CGFloat = 0.6
+        public static let strong: CGFloat = 0.7
+    }
+
+    // MARK: - Elevation
+
+    /// Paper window shadow: `#00000014` at `0 24 64`.
+    public enum Shadow {
+        public static let windowColor = SwiftUI.Color.black.opacity(0.08)
+        public static let windowRadius: CGFloat = 32
+        public static let windowY: CGFloat = 24
+
+        public static let cardColor = SwiftUI.Color.black.opacity(0.12)
+        public static let cardRadius: CGFloat = 8
+        public static let cardY: CGFloat = 4
     }
 
     // MARK: - Animations
@@ -144,42 +253,67 @@ private extension SwiftUI.Color {
 // MARK: - View Extensions for Design System
 
 public extension View {
-    func sayloFont(_ size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> some View {
-        self.font(.system(size: size, weight: weight, design: design))
+    /// Inter at a token size, with the weight resolved to a real family.
+    func sayloFont(_ size: CGFloat, weight: Font.Weight = .regular) -> some View {
+        self.font(DesignSystem.Typography.sans(size, weight: weight))
     }
 
-    func sayloBody() -> some View {
-        self
-            .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.base))
-            .lineSpacing(DesignSystem.Typography.leadingBody - DesignSystem.Typography.base)
-    }
-
+    /// Mono micro-label: `Label / Mono`, 12/500, +0.08em, muted.
     func sayloLabel() -> some View {
         self
-            .font(.custom(DesignSystem.Typography.mono, size: DesignSystem.Typography.xs))
+            .font(DesignSystem.Typography.mono(
+                DesignSystem.Typography.xs,
+                weight: DesignSystem.Typography.weightMedium
+            ))
             .tracking(DesignSystem.Typography.trackingWide)
+            .foregroundStyle(DesignSystem.Color.muted)
     }
 
+    /// Body 15/400 on a 22pt leading.
+    func sayloBody() -> some View {
+        self
+            .font(DesignSystem.Typography.sans(DesignSystem.Typography.base))
+            .lineSpacing(DesignSystem.Typography.bodyLineSpacing)
+            .foregroundStyle(DesignSystem.Color.ink)
+    }
+
+    /// Title 20/600 on -0.01em.
     func sayloTitle() -> some View {
         self
-            .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.lg))
-            .fontWeight(DesignSystem.Typography.weightSemibold)
-            .tracking(DesignSystem.Typography.trackingTight)
+            .font(DesignSystem.Typography.sans(
+                DesignSystem.Typography.lg,
+                weight: DesignSystem.Typography.weightSemibold
+            ))
+            .tracking(DesignSystem.Typography.trackingTitle)
+            .foregroundStyle(DesignSystem.Color.ink)
     }
 
+    /// Screen headline 32/700 on -0.03em.
     func sayloHeadline() -> some View {
         self
-            .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.xl))
-            .fontWeight(DesignSystem.Typography.weightBold)
+            .font(DesignSystem.Typography.sans(
+                DesignSystem.Typography.xl,
+                weight: DesignSystem.Typography.weightBold
+            ))
             .tracking(DesignSystem.Typography.trackingTight)
+            .foregroundStyle(DesignSystem.Color.ink)
     }
 
+    /// Serif italic voice line, 40pt.
+    func sayloSerifVoice() -> some View {
+        self
+            .font(DesignSystem.Typography.serif(DesignSystem.Typography.serifLarge))
+            .italic()
+            .foregroundStyle(DesignSystem.Color.ink)
+    }
+
+    /// Flat card: surface fill, 14pt radius, hairline border, no shadow.
     func sayloCard() -> some View {
         self
             .background(DesignSystem.Color.surface)
-            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.md))
+            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.lg))
             .overlay(
-                RoundedRectangle(cornerRadius: DesignSystem.Radius.md)
+                RoundedRectangle(cornerRadius: DesignSystem.Radius.lg)
                     .stroke(DesignSystem.Color.line, lineWidth: 1)
             )
     }
@@ -216,12 +350,12 @@ private struct SayloButtonStyle: ButtonStyle {
             fgColor = DesignSystem.Color.surface
             borderColor = .clear
         case .secondary:
-            bgColor = DesignSystem.Color.ground
+            bgColor = DesignSystem.Color.surface
             fgColor = DesignSystem.Color.ink
             borderColor = DesignSystem.Color.line
         case .ghost:
             bgColor = .clear
-            fgColor = DesignSystem.Color.ink
+            fgColor = DesignSystem.Color.accent
             borderColor = .clear
         case .danger:
             bgColor = DesignSystem.Color.danger
@@ -234,14 +368,16 @@ private struct SayloButtonStyle: ButtonStyle {
         }
 
         return configuration.label
-            .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
-            .fontWeight(DesignSystem.Typography.weightMedium)
+            .font(DesignSystem.Typography.sans(
+                DesignSystem.Typography.sm,
+                weight: DesignSystem.Typography.weightMedium
+            ))
             .foregroundStyle(fgColor)
-            .padding(.horizontal, DesignSystem.Spacing.s4)
-            .padding(.vertical, DesignSystem.Spacing.s2)
+            .padding(.horizontal, DesignSystem.Spacing.s4 + 2)
+            .padding(.vertical, DesignSystem.Spacing.s3 - 2)
             .background(
                 RoundedRectangle(cornerRadius: DesignSystem.Radius.md)
-                    .fill(isPressed ? bgColor.opacity(0.8) : bgColor)
+                    .fill(isPressed ? bgColor.opacity(0.85) : bgColor)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DesignSystem.Radius.md)
@@ -259,7 +395,8 @@ public struct SayloTextFieldStyle: TextFieldStyle {
 
     public func _body(configuration: TextField<_Label>) -> some View {
         configuration
-            .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.base))
+            .font(DesignSystem.Typography.sans(DesignSystem.Typography.base))
+            .foregroundStyle(DesignSystem.Color.ink)
             .padding(.horizontal, DesignSystem.Spacing.s3)
             .padding(.vertical, DesignSystem.Spacing.s2)
             .background(DesignSystem.Color.surface)
@@ -268,26 +405,6 @@ public struct SayloTextFieldStyle: TextFieldStyle {
                 RoundedRectangle(cornerRadius: DesignSystem.Radius.md)
                     .stroke(DesignSystem.Color.line, lineWidth: 1)
             )
-    }
-}
-
-// MARK: - Search Field Style
-
-public struct SayloSearchFieldStyle: TextFieldStyle {
-    public init() {}
-
-    public func _body(configuration: TextField<_Label>) -> some View {
-        HStack(spacing: DesignSystem.Spacing.s2) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: DesignSystem.Typography.sm))
-                .foregroundStyle(DesignSystem.Color.muted)
-            configuration
-                .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.base))
-        }
-        .padding(.horizontal, DesignSystem.Spacing.s3)
-        .padding(.vertical, DesignSystem.Spacing.s2)
-        .background(DesignSystem.Color.ground)
-        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.full))
     }
 }
 
@@ -313,17 +430,19 @@ public struct SayloWindowChrome: View {
                     SayloMark()
                 }
                 Text(title)
-                    .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
-                    .fontWeight(DesignSystem.Typography.weightSemibold)
+                    .font(DesignSystem.Typography.sans(
+                        DesignSystem.Typography.sm,
+                        weight: DesignSystem.Typography.weightSemibold
+                    ))
                     .foregroundStyle(DesignSystem.Color.ink)
                 if let badge {
                     Text(badge)
-                        .font(.custom(DesignSystem.Typography.mono, size: 10))
+                        .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                         .foregroundStyle(DesignSystem.Color.accent)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(DesignSystem.Color.accentSoft)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.sm))
                 }
             }
             Spacer(minLength: 0)
@@ -338,21 +457,24 @@ public struct SayloWindowChrome: View {
     }
 }
 
-/// Mini waveform logomark used in the title bar.
+/// Mini waveform logomark: four bars, one verdigris — the Saylo mark.
 public struct SayloMark: View {
     public init() {}
     public var body: some View {
         HStack(spacing: 3) {
-            RoundedRectangle(cornerRadius: 1).fill(DesignSystem.Color.ink).frame(width: 2.5, height: 6)
-            RoundedRectangle(cornerRadius: 1).fill(DesignSystem.Color.accent).frame(width: 2.5, height: 12)
-            RoundedRectangle(cornerRadius: 1).fill(DesignSystem.Color.ink).frame(width: 2.5, height: 8)
-            RoundedRectangle(cornerRadius: 1).fill(DesignSystem.Color.ink).frame(width: 2.5, height: 4)
+            RoundedRectangle(cornerRadius: 1.5).fill(DesignSystem.Color.surface).frame(width: 3, height: 6)
+            RoundedRectangle(cornerRadius: 1.5).fill(DesignSystem.Color.accent).frame(width: 3, height: 14)
+            RoundedRectangle(cornerRadius: 1.5).fill(DesignSystem.Color.surface).frame(width: 3, height: 10)
+            RoundedRectangle(cornerRadius: 1.5).fill(DesignSystem.Color.surface).frame(width: 3, height: 4)
         }
-        .frame(height: 14)
+        .padding(.horizontal, 5)
+        .frame(width: 28, height: 28)
+        .background(DesignSystem.Color.ink)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.sm))
     }
 }
 
-/// Sidebar navigation row matching Paper: 13px, radius 8, padding 8/12,
+/// Sidebar navigation row: 13pt Inter, radius 8, padding 8/12,
 /// active = accentSoft fill + accent semibold text.
 public struct SayloNavRow: View {
     let title: String
@@ -369,21 +491,23 @@ public struct SayloNavRow: View {
 
     public var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: DesignSystem.Spacing.s2 + 2) {
                 Text(emoji)
-                    .font(.system(size: 13))
+                    .font(.system(size: DesignSystem.Typography.sm))
                     .foregroundStyle(isActive ? DesignSystem.Color.accent : DesignSystem.Color.muted)
                 Text(title)
-                    .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
-                    .fontWeight(isActive ? DesignSystem.Typography.weightSemibold : DesignSystem.Typography.weightRegular)
+                    .font(DesignSystem.Typography.sans(
+                        DesignSystem.Typography.sm,
+                        weight: isActive ? DesignSystem.Typography.weightSemibold : DesignSystem.Typography.weightRegular
+                    ))
                     .foregroundStyle(isActive ? DesignSystem.Color.accent : DesignSystem.Color.ink)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .padding(.vertical, 8)
-            .padding(.horizontal, 12)
+            .padding(.vertical, DesignSystem.Spacing.s2)
+            .padding(.horizontal, DesignSystem.Spacing.s3)
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: DesignSystem.Radius.md)
                     .fill(isActive ? DesignSystem.Color.accentSoft : .clear)
             )
             .contentShape(Rectangle())
@@ -392,69 +516,95 @@ public struct SayloNavRow: View {
     }
 }
 
-/// Black hero card: ink bg, radius 14, serif-italic headline accent word,
-/// gray subcopy, white CTA button.
+/// Ink hero card (Paper artboard 05): 24/28 padding, radius 14, serif-italic
+/// accent word, muted subcopy, accent CTA followed by dark quick chips.
 public struct SayloHeroCard: View {
     let headline: String
     let accentWord: String
     let headlineSuffix: String
     let copy: String
     let ctaTitle: String
+    var chips: [String] = []
     let action: () -> Void
 
-    public init(headline: String, accentWord: String, headlineSuffix: String, copy: String, ctaTitle: String, action: @escaping () -> Void) {
+    public init(
+        headline: String,
+        accentWord: String,
+        headlineSuffix: String,
+        copy: String,
+        ctaTitle: String,
+        chips: [String] = [],
+        action: @escaping () -> Void
+    ) {
         self.headline = headline
         self.accentWord = accentWord
         self.headlineSuffix = headlineSuffix
         self.copy = copy
         self.ctaTitle = ctaTitle
+        self.chips = chips
         self.action = action
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.s3) {
+            VStack(alignment: .leading, spacing: DesignSystem.Spacing.s1) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(headline)
-                        .font(.custom(DesignSystem.Typography.sans, size: 24))
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.white)
+                        .font(DesignSystem.Typography.sans(
+                            DesignSystem.Typography.hero,
+                            weight: DesignSystem.Typography.weightSemibold
+                        ))
+                        .foregroundStyle(DesignSystem.Color.surface)
                     Text(accentWord)
-                        .font(.custom(DesignSystem.Typography.serif, size: 26))
+                        .font(DesignSystem.Typography.serif(DesignSystem.Typography.serifAccent))
                         .italic()
                         .foregroundStyle(DesignSystem.Color.accent)
                     Text(headlineSuffix)
-                        .font(.custom(DesignSystem.Typography.sans, size: 24))
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.white)
+                        .font(DesignSystem.Typography.sans(
+                            DesignSystem.Typography.hero,
+                            weight: DesignSystem.Typography.weightSemibold
+                        ))
+                        .foregroundStyle(DesignSystem.Color.surface)
                 }
                 Text(copy)
-                    .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
+                    .font(DesignSystem.Typography.sans(DesignSystem.Typography.sm))
                     .foregroundStyle(DesignSystem.Color.heroSub)
                     .lineLimit(3)
             }
-            Button(action: action) {
-                Text(ctaTitle)
-                    .font(.custom(DesignSystem.Typography.sans, size: 12))
-                    .fontWeight(.semibold)
-                    .foregroundStyle(DesignSystem.Color.ink)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            HStack(spacing: DesignSystem.Spacing.s2) {
+                Button(action: action) {
+                    Text(ctaTitle)
+                        .font(DesignSystem.Typography.sans(
+                            DesignSystem.Typography.xs,
+                            weight: DesignSystem.Typography.weightMedium
+                        ))
+                        .foregroundStyle(DesignSystem.Color.surface)
+                        .padding(.horizontal, DesignSystem.Spacing.s3)
+                        .padding(.vertical, DesignSystem.Spacing.s2 - 2)
+                        .background(DesignSystem.Color.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.sm))
+                }
+                .buttonStyle(.plain)
+                ForEach(chips, id: \.self) { chip in
+                    Text(chip)
+                        .font(DesignSystem.Typography.sans(DesignSystem.Typography.xs))
+                        .foregroundStyle(DesignSystem.Color.surface)
+                        .padding(.horizontal, DesignSystem.Spacing.s3)
+                        .padding(.vertical, DesignSystem.Spacing.s2 - 2)
+                        .background(DesignSystem.Color.chipDark)
+                        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.sm))
+                }
             }
-            .buttonStyle(.plain)
         }
-        .padding(.vertical, 24)
-        .padding(.horizontal, 28)
+        .padding(.vertical, DesignSystem.Spacing.s6)
+        .padding(.horizontal, DesignSystem.Spacing.s6 + 4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DesignSystem.Color.ink)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .shadow(color: .black.opacity(0.12), radius: 24, x: 0, y: 8)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.lg))
     }
 }
 
-/// Simple serif-italic hero (Home artboard headline variant).
+/// Serif-italic hero variant (Home headline treatment).
 public struct SayloSerifHeroCard: View {
     let headline: String
     let copy: String
@@ -469,50 +619,49 @@ public struct SayloSerifHeroCard: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.s3) {
+            VStack(alignment: .leading, spacing: DesignSystem.Spacing.s1) {
                 Text(headline)
-                    .font(.custom(DesignSystem.Typography.serif, size: 24))
+                    .font(DesignSystem.Typography.serif(DesignSystem.Typography.serifAccent))
                     .italic()
-                    .foregroundStyle(.white)
+                    .foregroundStyle(DesignSystem.Color.surface)
                 Text(copy)
-                    .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
+                    .font(DesignSystem.Typography.sans(DesignSystem.Typography.sm))
                     .foregroundStyle(DesignSystem.Color.heroSub)
             }
             Button(action: action) {
                 Text(ctaTitle)
-                    .font(.custom(DesignSystem.Typography.sans, size: 12))
-                    .fontWeight(.semibold)
+                    .font(DesignSystem.Typography.sans(
+                        DesignSystem.Typography.xs,
+                        weight: DesignSystem.Typography.weightSemibold
+                    ))
                     .foregroundStyle(DesignSystem.Color.ink)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .padding(.horizontal, DesignSystem.Spacing.s4)
+                    .padding(.vertical, DesignSystem.Spacing.s2)
+                    .background(DesignSystem.Color.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.sm))
             }
             .buttonStyle(.plain)
         }
-        .padding(.vertical, 24)
-        .padding(.horizontal, 28)
+        .padding(.vertical, DesignSystem.Spacing.s6)
+        .padding(.horizontal, DesignSystem.Spacing.s6 + 4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DesignSystem.Color.ink)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .shadow(color: .black.opacity(0.12), radius: 24, x: 0, y: 8)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.lg))
     }
 }
 
-/// Mono section label: 11px, wide tracking, muted (e.g. TODAY, WORDS PER MINUTE).
+/// Mono section label: 12/500, +0.08em, muted (TODAY, WORDS PER MINUTE).
 public struct SayloSectionLabel: View {
     let text: String
     public init(_ text: String) { self.text = text }
     public var body: some View {
         Text(text.uppercased())
-            .font(.custom(DesignSystem.Typography.mono, size: 11))
-            .tracking(DesignSystem.Typography.trackingWide)
-            .foregroundStyle(DesignSystem.Color.muted)
+            .sayloLabel()
     }
 }
 
-/// Rounded progress bar: 6–8pt, track fill, accent/slate fill.
+/// Rounded progress bar: 6pt track, accent fill.
 public struct SayloProgressBar: View {
     var value: Double // 0...1
     var fill: SwiftUI.Color = DesignSystem.Color.accent
@@ -526,19 +675,20 @@ public struct SayloProgressBar: View {
 
     public var body: some View {
         GeometryReader { geo in
-            RoundedRectangle(cornerRadius: height / 2)
+            Capsule(style: .continuous)
                 .fill(DesignSystem.Color.track)
                 .overlay(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: height / 2)
+                    Capsule(style: .continuous)
                         .fill(fill)
-                        .frame(width: max(2, geo.size.width * min(1, max(0, value))))
+                        .frame(width: max(height, geo.size.width * min(1, max(0, value))))
                 }
         }
         .frame(height: height)
     }
 }
 
-/// Toggle matching Paper settings/dialog: 38×22 pill, accent on / track off.
+/// Toggle matching Paper settings/dialog: 38×22 pill, accent on / track off,
+/// 18pt surface knob.
 public struct SayloToggleStyle: ToggleStyle {
     public init() {}
     public func makeBody(configuration: Configuration) -> some View {
@@ -548,34 +698,30 @@ public struct SayloToggleStyle: ToggleStyle {
             }
         } label: {
             ZStack(alignment: configuration.isOn ? .trailing : .leading) {
-                RoundedRectangle(cornerRadius: 999)
+                Capsule(style: .continuous)
                     .fill(configuration.isOn ? DesignSystem.Color.accent : DesignSystem.Color.track)
                     .frame(width: 38, height: 22)
                 Circle()
-                    .fill(.white)
+                    .fill(DesignSystem.Color.surface)
                     .frame(width: 18, height: 18)
                     .padding(2)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityValue(configuration.isOn ? "On" : "Off")
     }
 }
 
-/// Grouped settings card: chrome-tinted surface, radius 12, hairline border.
+/// Grouped settings card: surface fill, radius 10, hairline border.
 public struct SayloGroupCard<Content: View>: View {
     @ViewBuilder let content: Content
     public init(@ViewBuilder content: () -> Content) { self.content = content() }
     public var body: some View {
         VStack(spacing: 0) { content }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(DesignSystem.Color.chrome)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(DesignSystem.Color.line, lineWidth: 1)
-            )
+            .padding(.horizontal, DesignSystem.Spacing.s4)
+            .padding(.vertical, DesignSystem.Spacing.s2)
+            .sayloCard()
     }
 }
 
@@ -598,7 +744,7 @@ public struct SearchField: View {
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.base))
+                .font(DesignSystem.Typography.sans(DesignSystem.Typography.base))
                 .foregroundStyle(DesignSystem.Color.ink)
 
             if !text.isEmpty {
@@ -606,13 +752,16 @@ public struct SearchField: View {
                     text = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: DesignSystem.Typography.sm))
                         .foregroundStyle(DesignSystem.Color.muted)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
             }
         }
         .padding(.horizontal, DesignSystem.Spacing.s3)
         .padding(.vertical, DesignSystem.Spacing.s2)
+        .frame(height: 38)
         .background(DesignSystem.Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.md))
         .overlay(

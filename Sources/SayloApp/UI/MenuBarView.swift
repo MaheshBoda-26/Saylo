@@ -17,25 +17,17 @@ public struct MenuBarView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
-            HStack(spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(DesignSystem.Color.ink)
-                        .frame(width: 28, height: 28)
-                    HStack(spacing: 2) {
-                        RoundedRectangle(cornerRadius: 1).fill(.white).frame(width: 2, height: 5)
-                        RoundedRectangle(cornerRadius: 1).fill(DesignSystem.Color.accent).frame(width: 2, height: 10)
-                        RoundedRectangle(cornerRadius: 1).fill(.white).frame(width: 2, height: 7)
-                        RoundedRectangle(cornerRadius: 1).fill(.white).frame(width: 2, height: 4)
-                    }
-                }
+            HStack(spacing: DesignSystem.Spacing.s3) {
+                SayloMark()
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Saylo")
-                        .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
-                        .fontWeight(.semibold)
+                        .font(DesignSystem.Typography.sans(
+                            DesignSystem.Typography.sm,
+                            weight: DesignSystem.Typography.weightSemibold
+                        ))
                         .foregroundStyle(DesignSystem.Color.ink)
                     Text("Whistle STT · \(statusText)")
-                        .font(.custom(DesignSystem.Typography.mono, size: 11))
+                        .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                         .foregroundStyle(DesignSystem.Color.muted)
                 }
                 Spacer(minLength: 0)
@@ -43,8 +35,9 @@ public struct MenuBarView: View {
                     .fill(statusDot)
                     .frame(width: 8, height: 8)
                     .symbolEffect(.pulse, options: .repeating, value: dictationController.state == .recording)
+                    .accessibilityLabel("Status: \(statusText)")
             }
-            .padding(14)
+            .padding(DesignSystem.Spacing.s4)
 
             Divider().overlay(DesignSystem.Color.line)
 
@@ -69,13 +62,13 @@ public struct MenuBarView: View {
                     showDivider: false
                 )
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.horizontal, DesignSystem.Spacing.s2)
+            .padding(.vertical, DesignSystem.Spacing.s1 + 2)
 
             Divider().overlay(DesignSystem.Color.line)
 
             // Quick actions
-            VStack(spacing: 2) {
+            VStack(spacing: DesignSystem.Spacing.s1) {
                 Button {
                     toggleDictation()
                 } label: {
@@ -95,7 +88,7 @@ public struct MenuBarView: View {
                         Text("Open Dashboard…")
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Text("⌘,")
-                            .font(.custom(DesignSystem.Typography.mono, size: 11))
+                            .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                             .foregroundStyle(DesignSystem.Color.muted)
                     }
                 }
@@ -110,18 +103,22 @@ public struct MenuBarView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
+            .font(DesignSystem.Typography.sans(
+                DesignSystem.Typography.sm,
+                weight: DesignSystem.Typography.weightMedium
+            ))
             .foregroundStyle(DesignSystem.Color.ink)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, DesignSystem.Spacing.s4)
+            .padding(.vertical, DesignSystem.Spacing.s3)
         }
         .frame(width: 300)
         .background(DesignSystem.Color.surface)
         // Paper design is light-mode only.
         .preferredColorScheme(.light)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .tint(DesignSystem.Color.accent)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.md))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: DesignSystem.Radius.md)
                 .stroke(DesignSystem.Color.line, lineWidth: 1)
         )
         .sheet(isPresented: $showingSettings) {
@@ -182,23 +179,25 @@ private struct PopoverRow: View {
         VStack(spacing: 0) {
             HStack {
                 Text(label)
-                    .font(.custom(DesignSystem.Typography.sans, size: 12))
+                    .font(DesignSystem.Typography.sans(
+                        DesignSystem.Typography.xs,
+                        weight: isHighlighted ? DesignSystem.Typography.weightMedium : DesignSystem.Typography.weightRegular
+                    ))
                     .foregroundStyle(isHighlighted ? DesignSystem.Color.accent : DesignSystem.Color.muted)
-                    .fontWeight(isHighlighted ? .medium : .regular)
                 Spacer(minLength: 0)
                 Text(value)
-                    .font(.custom(DesignSystem.Typography.mono, size: 11))
+                    .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                     .foregroundStyle(DesignSystem.Color.ink)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, DesignSystem.Spacing.s2 + 2)
+            .padding(.vertical, DesignSystem.Spacing.s2)
             .background(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: DesignSystem.Radius.sm)
                     .fill(isHighlighted ? DesignSystem.Color.accentSoft : .clear)
             )
             if showDivider {
-                Divider().overlay(DesignSystem.Color.line.opacity(0.5))
-                    .padding(.horizontal, 10)
+                Divider().overlay(DesignSystem.Color.line.opacity(DesignSystem.Opacity.muted))
+                    .padding(.horizontal, DesignSystem.Spacing.s2 + 2)
             }
         }
     }

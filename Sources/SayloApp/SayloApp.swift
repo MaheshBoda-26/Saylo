@@ -19,6 +19,11 @@ struct SayloApp: App {
     private let hotkeyCoordinator: DictationHotkeyCoordinator
 
     init() {
+        // Inter / Instrument Serif / Geist Mono must be registered before any
+        // view resolves DesignSystem.Typography.*, otherwise every custom font
+        // silently falls back to the system face.
+        DesignSystem.registerBundledFonts()
+
         // Initialize WhistleEngine with bundled model
         let modelURL = Bundle.main.url(forResource: "whistle", withExtension: "cact") ??
                       URL(fileURLWithPath: "vendor/whistle.cact")

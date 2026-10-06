@@ -51,109 +51,73 @@ public struct DictionaryContentView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.s6) {
             // Title row
             HStack {
                 Text("Dictionary")
-                    .font(.custom(DesignSystem.Typography.sans, size: 26))
-                    .fontWeight(.bold)
-                    .tracking(DesignSystem.Typography.trackingTight)
-                    .foregroundStyle(DesignSystem.Color.ink)
+                    .sayloHeadline()
                 Spacer(minLength: 0)
-                Button { showingAddSheet = true } label: {
-                    Text("+ Add new word")
-                        .font(.custom(DesignSystem.Typography.sans, size: 12))
-                        .fontWeight(.medium)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(DesignSystem.Color.ink)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                Button("+ Add new word") {
+                    showingAddSheet = true
                 }
-                .buttonStyle(.plain)
+                .sayloButtonStyle(.primary)
             }
 
             // Tabs + tools
             HStack {
-                HStack(spacing: 20) {
+                HStack(spacing: DesignSystem.Spacing.s6) {
                     ForEach(DictionaryTab.allCases) { t in
                         Button { tab = t } label: {
-                            VStack(spacing: 10) {
-                                Text(t.title)
-                                    .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
-                                    .fontWeight(tab == t ? .semibold : .regular)
-                                    .foregroundStyle(tab == t ? DesignSystem.Color.ink : DesignSystem.Color.muted)
-                                Rectangle()
-                                    .fill(tab == t ? DesignSystem.Color.ink : .clear)
-                                    .frame(height: 2)
-                            }
+                            Text(t.title)
+                                .font(DesignSystem.Typography.sans(
+                                    DesignSystem.Typography.sm,
+                                    weight: tab == t
+                                        ? DesignSystem.Typography.weightSemibold
+                                        : DesignSystem.Typography.weightRegular
+                                ))
+                                .foregroundStyle(tab == t ? DesignSystem.Color.ink : DesignSystem.Color.muted)
+                                .padding(.bottom, DesignSystem.Spacing.s2 + 2)
+                                .overlay(alignment: .bottom) {
+                                    Rectangle()
+                                        .fill(tab == t ? DesignSystem.Color.ink : .clear)
+                                        .frame(height: 2)
+                                }
                         }
                         .buttonStyle(.plain)
                     }
                 }
                 Spacer(minLength: 0)
-                HStack(spacing: 12) {
-                    Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(DesignSystem.Color.muted)
-                    Image(systemName: "arrow.up.arrow.down").font(.system(size: 13)).foregroundStyle(DesignSystem.Color.muted)
+                HStack(spacing: DesignSystem.Spacing.s3) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: DesignSystem.Typography.sm))
+                        .foregroundStyle(DesignSystem.Color.muted)
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.system(size: DesignSystem.Typography.sm))
+                        .foregroundStyle(DesignSystem.Color.muted)
                     Button { searchText = "" } label: {
-                        Image(systemName: "arrow.clockwise").font(.system(size: 13)).foregroundStyle(DesignSystem.Color.muted)
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: DesignSystem.Typography.sm))
+                            .foregroundStyle(DesignSystem.Color.muted)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Reset search")
                 }
             }
             .overlay(alignment: .bottom) {
                 Divider().overlay(DesignSystem.Color.line)
             }
 
-            // Hero with quick chips (Paper: accent CTA + dark chips inside black card)
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text("Saylo spells the way")
-                            .font(.custom(DesignSystem.Typography.sans, size: 24))
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.white)
-                        Text("you")
-                            .font(.custom(DesignSystem.Typography.serif, size: 26))
-                            .italic()
-                            .foregroundStyle(DesignSystem.Color.accent)
-                        Text("do.")
-                            .font(.custom(DesignSystem.Typography.sans, size: 24))
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.white)
-                    }
-                    Text("Correct a spelling once or add it here manually, so your personal terms, company jargon, or uncommon names are prioritized during Whistle search.")
-                        .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
-                        .foregroundStyle(DesignSystem.Color.heroSub)
-                }
-                HStack(spacing: 8) {
-                    Button { showingAddSheet = true } label: {
-                        Text("+ Add new word")
-                            .font(.custom(DesignSystem.Typography.sans, size: 12))
-                            .fontWeight(.medium)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(DesignSystem.Color.accent)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                    }
-                    .buttonStyle(.plain)
-                    ForEach(quickChips, id: \.self) { chip in
-                        Text(chip)
-                            .font(.custom(DesignSystem.Typography.sans, size: 12))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(DesignSystem.Color.chipDark)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                    }
-                }
+            // Hero with quick chips
+            SayloHeroCard(
+                headline: "Saylo spells the way",
+                accentWord: "you",
+                headlineSuffix: "do.",
+                copy: "Correct a spelling once or add it here manually, so your personal terms, company jargon, or uncommon names are prioritized during Whistle search.",
+                ctaTitle: "+ Add new word",
+                chips: quickChips
+            ) {
+                showingAddSheet = true
             }
-            .padding(.vertical, 24)
-            .padding(.horizontal, 28)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(DesignSystem.Color.ink)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
 
             // Search (functional, Paper keeps it as icon-only; expose on filter)
             SearchField(text: $searchText, placeholder: "Search dictionary…")
@@ -161,12 +125,22 @@ public struct DictionaryContentView: View {
 
             // Rows
             if filtered.isEmpty {
-                ContentUnavailableView {
-                    Label(searchText.isEmpty ? "No Entries Yet" : "No Matches", systemImage: "textformat.alt")
-                } description: {
+                VStack(spacing: DesignSystem.Spacing.s4) {
+                    Image(systemName: "textformat.alt")
+                        .font(.system(size: 40))
+                        .foregroundStyle(DesignSystem.Color.line)
+                    Text(searchText.isEmpty ? "No entries yet" : "No matches")
+                        .font(DesignSystem.Typography.serif(DesignSystem.Typography.serifAccent))
+                        .italic()
+                        .foregroundStyle(DesignSystem.Color.ink)
                     Text(searchText.isEmpty
                         ? "Add words, names, or corrections that Saylo should know"
                         : "No entries match '\(searchText)'")
+                        .font(DesignSystem.Typography.sans(DesignSystem.Typography.base))
+                        .lineSpacing(DesignSystem.Typography.bodyLineSpacing)
+                        .foregroundStyle(DesignSystem.Color.muted)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 380)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -186,8 +160,9 @@ public struct DictionaryContentView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 28)
-        .padding(.horizontal, 36)
+        .padding(.vertical, DesignSystem.Spacing.s6)
+        .padding(.horizontal, DesignSystem.Spacing.s8)
+        .tint(DesignSystem.Color.accent)
         .sheet(isPresented: $showingAddSheet) {
             AddEditEntrySheet(entry: nil, initialType: .word) { phrase, replacement, type in
                 dictionaryStore.addEntry(phrase: phrase, replacement: replacement, type: type)
@@ -236,7 +211,7 @@ private enum DictionaryTab: String, CaseIterable, Identifiable {
 
 // MARK: - Paper dictionary row
 
-/// Matches Paper rows: 14px phrase + accent sparkle left,
+/// Dictionary row: 15pt phrase + accent sparkle left,
 /// mono "biasing weight X.X" right (deterministic from phrase hash).
 private struct PaperDictionaryRow: View {
     let entry: DictionaryEntry
@@ -246,44 +221,56 @@ private struct PaperDictionaryRow: View {
 
     var body: some View {
         HStack {
-            HStack(spacing: 8) {
+            HStack(spacing: DesignSystem.Spacing.s2) {
                 Text(entry.phrase)
-                    .font(.custom(DesignSystem.Typography.sans, size: 14))
-                    .fontWeight(isUserName ? .semibold : .regular)
+                    .font(DesignSystem.Typography.sans(
+                        DesignSystem.Typography.base,
+                        weight: isUserName ? DesignSystem.Typography.weightSemibold : DesignSystem.Typography.weightRegular
+                    ))
                     .foregroundStyle(DesignSystem.Color.ink)
                 if isUserName {
                     Text("User Name")
-                        .font(.custom(DesignSystem.Typography.mono, size: 10))
+                        .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                         .foregroundStyle(DesignSystem.Color.accent)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1)
                         .background(DesignSystem.Color.accentSoft)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.sm))
                 } else {
                     Text("✦")
-                        .font(.system(size: 11))
+                        .font(.system(size: DesignSystem.Typography.xs))
                         .foregroundStyle(DesignSystem.Color.accent.opacity(0.7))
                 }
             }
             Spacer(minLength: 0)
             if isUserName {
-                HStack(spacing: 12) {
+                HStack(spacing: DesignSystem.Spacing.s3) {
                     Button(action: onEdit) {
-                        Image(systemName: "pencil").font(.system(size: 13)).foregroundStyle(DesignSystem.Color.muted)
-                    }.buttonStyle(.plain)
+                        Image(systemName: "pencil")
+                            .font(.system(size: DesignSystem.Typography.sm))
+                            .foregroundStyle(DesignSystem.Color.muted)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Edit \(entry.phrase)")
                     Button(action: onDelete) {
-                        Image(systemName: "trash").font(.system(size: 13)).foregroundStyle(DesignSystem.Color.muted)
-                    }.buttonStyle(.plain)
-                    Image(systemName: "star").font(.system(size: 13)).foregroundStyle(DesignSystem.Color.muted)
+                        Image(systemName: "trash")
+                            .font(.system(size: DesignSystem.Typography.sm))
+                            .foregroundStyle(DesignSystem.Color.muted)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Delete \(entry.phrase)")
+                    Image(systemName: "star")
+                        .font(.system(size: DesignSystem.Typography.sm))
+                        .foregroundStyle(DesignSystem.Color.muted)
                 }
             } else {
                 Text("biasing weight \(biasWeight, specifier: "%.1f")")
-                    .font(.custom(DesignSystem.Typography.mono, size: 11))
+                    .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                     .foregroundStyle(DesignSystem.Color.muted)
             }
         }
-        .padding(.vertical, 14)
-        .padding(.horizontal, 4)
+        .padding(.vertical, DesignSystem.Spacing.s3)
+        .padding(.horizontal, DesignSystem.Spacing.s1)
         .overlay(alignment: .bottom) {
             Divider().overlay(DesignSystem.Color.line)
         }
@@ -341,14 +328,14 @@ private struct AddEditEntrySheet: View {
 
                     LabeledContent("Phrase") {
                         TextField("e.g., Anthropic, Kubernetes, Claude Code", text: $phrase)
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(SayloTextFieldStyle())
                             .frame(minWidth: 250)
                     }
 
                     if type == .correction {
                         LabeledContent("Replacement") {
                             TextField("e.g., Claude Code", text: $replacement)
-                                .textFieldStyle(.roundedBorder)
+                                .textFieldStyle(SayloTextFieldStyle())
                                 .frame(minWidth: 250)
                         }
                     }
@@ -360,9 +347,9 @@ private struct AddEditEntrySheet: View {
                             HStack(alignment: .top, spacing: DesignSystem.Spacing.s2) {
                                 Image(systemName: "exclamationmark.triangle.fill")
                                     .foregroundStyle(DesignSystem.Color.danger)
-                                    .font(.system(size: 13))
+                                    .font(.system(size: DesignSystem.Typography.sm))
                                 Text(warning)
-                                    .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
+                                    .font(DesignSystem.Typography.sans(DesignSystem.Typography.sm))
                                     .foregroundStyle(DesignSystem.Color.danger)
                             }
                         }

@@ -91,9 +91,14 @@ private struct PillContent: View {
     var body: some View {
         ZStack {
             // Background
-            RoundedRectangle(cornerRadius: DesignSystem.Radius.full)
+            Capsule(style: .continuous)
                 .fill(DesignSystem.Color.ink)
-                .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+                .shadow(
+                    color: DesignSystem.Shadow.cardColor,
+                    radius: DesignSystem.Shadow.cardRadius,
+                    x: 0,
+                    y: DesignSystem.Shadow.cardY
+                )
 
             // Content based on state
             HStack(spacing: DesignSystem.Spacing.s3) {
@@ -115,6 +120,18 @@ private struct PillContent: View {
         }
         .frame(width: DesignSystem.Container.pill, height: 56)
         .animation(DesignSystem.Animation.normal, value: state)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var accessibilityLabel: String {
+        switch state {
+        case .idle: return "Saylo ready"
+        case .recording: return "Listening"
+        case .transcribing: return "Processing"
+        case .inserting: return "Pasted"
+        case .error: return "Error"
+        }
     }
 
     /// State glyphs mirror Paper's pill states; per-state content views
@@ -124,7 +141,7 @@ private struct PillContent: View {
         switch state {
         case .error:
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: DesignSystem.Typography.xs, weight: .medium))
                 .foregroundStyle(DesignSystem.Color.danger)
         default:
             EmptyView()
@@ -136,23 +153,25 @@ private struct PillContent: View {
     private var idleView: some View {
         HStack(spacing: DesignSystem.Spacing.s2) {
             Circle()
-                .fill(DesignSystem.Color.surface.opacity(0.35))
+                .fill(DesignSystem.Color.surface.opacity(DesignSystem.Opacity.subtle))
                 .frame(width: 6, height: 6)
             Text("Saylo Ready")
-                .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
-                .fontWeight(.medium)
+                .font(DesignSystem.Typography.sans(
+                    DesignSystem.Typography.sm,
+                    weight: DesignSystem.Typography.weightMedium
+                ))
                 .foregroundStyle(DesignSystem.Color.surface)
             Text(hotkeyDisplay)
-                .font(.custom(DesignSystem.Typography.mono, size: 10))
-                .foregroundStyle(DesignSystem.Color.surface.opacity(0.7))
+                .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
+                .foregroundStyle(DesignSystem.Color.surface.opacity(DesignSystem.Opacity.strong))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(DesignSystem.Color.surface.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .background(DesignSystem.Color.surface.opacity(DesignSystem.Opacity.faint))
+                .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.sm))
         }
     }
 
-    /// Listening — Paper State 02: waveform + "Listening…" + "16kHz"
+    /// Listening — Paper State 02: waveform + "Listening…" + mono duration
     @ViewBuilder
     private var recordingView: some View {
         HStack(spacing: DesignSystem.Spacing.s2) {
@@ -160,12 +179,14 @@ private struct PillContent: View {
                 .frame(width: 44, height: 24)
 
             Text("Listening…")
-                .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
-                .fontWeight(.medium)
+                .font(DesignSystem.Typography.sans(
+                    DesignSystem.Typography.sm,
+                    weight: DesignSystem.Typography.weightMedium
+                ))
                 .foregroundStyle(DesignSystem.Color.surface)
 
             Text(formatDuration(duration))
-                .font(.custom(DesignSystem.Typography.mono, size: 10))
+                .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                 .monospacedDigit()
                 .foregroundStyle(DesignSystem.Color.accent)
         }
@@ -189,29 +210,33 @@ private struct PillContent: View {
         HStack(spacing: DesignSystem.Spacing.s2) {
             WaveformLoader(color: DesignSystem.Color.surface)
             Text("Processing…")
-                .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
-                .fontWeight(.medium)
+                .font(DesignSystem.Typography.sans(
+                    DesignSystem.Typography.sm,
+                    weight: DesignSystem.Typography.weightMedium
+                ))
                 .foregroundStyle(DesignSystem.Color.surface)
             Text("~11ms TTFT")
-                .font(.custom(DesignSystem.Typography.mono, size: 10))
-                .foregroundStyle(DesignSystem.Color.surface.opacity(0.6))
+                .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
+                .foregroundStyle(DesignSystem.Color.surface.opacity(DesignSystem.Opacity.muted))
         }
     }
 
-    /// Complete — Paper State 04: green check + "Pasted" + "⌘V"
+    /// Complete — Paper State 04: check + "Pasted" + "⌘V"
     @ViewBuilder
     private var insertingView: some View {
         HStack(spacing: DesignSystem.Spacing.s2) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: DesignSystem.Typography.xs, weight: .medium))
                 .foregroundStyle(DesignSystem.Color.accent)
             Text("Pasted")
-                .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
-                .fontWeight(.medium)
+                .font(DesignSystem.Typography.sans(
+                    DesignSystem.Typography.sm,
+                    weight: DesignSystem.Typography.weightMedium
+                ))
                 .foregroundStyle(DesignSystem.Color.surface)
             Text("⌘V")
-                .font(.custom(DesignSystem.Typography.mono, size: 10))
-                .foregroundStyle(DesignSystem.Color.surface.opacity(0.6))
+                .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
+                .foregroundStyle(DesignSystem.Color.surface.opacity(DesignSystem.Opacity.muted))
         }
     }
 
@@ -253,6 +278,7 @@ private struct WaveformView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .accessibilityHidden(true)
     }
 
     private func barHeight(for index: Int, maxHeight: CGFloat) -> CGFloat {

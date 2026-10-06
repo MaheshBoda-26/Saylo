@@ -41,6 +41,7 @@ public struct MainWindow: View {
         }
         .frame(minWidth: 1080, minHeight: 680)
         .background(DesignSystem.Color.ground)
+        .tint(DesignSystem.Color.accent)
         // Paper design is light-mode only: pin it so native controls
         // (pickers, menus) draw dark text even in system Dark Mode.
         .preferredColorScheme(.light)
@@ -139,14 +140,16 @@ private struct SidebarFooterRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                Text(emoji).font(.system(size: 12)).foregroundStyle(DesignSystem.Color.muted)
+            HStack(spacing: DesignSystem.Spacing.s2) {
+                Text(emoji)
+                    .font(.system(size: DesignSystem.Typography.xs))
+                    .foregroundStyle(DesignSystem.Color.muted)
                 Text(title)
-                    .font(.custom(DesignSystem.Typography.sans, size: 12))
+                    .font(DesignSystem.Typography.sans(DesignSystem.Typography.xs))
                     .foregroundStyle(DesignSystem.Color.ink)
                 Spacer(minLength: 0)
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, DesignSystem.Spacing.s1)
             .padding(.horizontal, 6)
             .contentShape(Rectangle())
         }
@@ -156,27 +159,26 @@ private struct SidebarFooterRow: View {
 
 private struct WhistleEngineCard: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Circle().fill(DesignSystem.Color.accent).frame(width: 6, height: 6)
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.s1 + 2) {
+            HStack(spacing: DesignSystem.Spacing.s2) {
+                Circle()
+                    .fill(DesignSystem.Color.accent)
+                    .frame(width: 6, height: 6)
                 Text("Whistle Engine 100% Local")
-                    .font(.custom(DesignSystem.Typography.sans, size: 11))
-                    .fontWeight(.semibold)
+                    .font(DesignSystem.Typography.sans(
+                        DesignSystem.Typography.xs,
+                        weight: DesignSystem.Typography.weightSemibold
+                    ))
                     .foregroundStyle(DesignSystem.Color.ink)
             }
             Text("Zero cloud delay or subscription fees. Runs directly on your M2.")
-                .font(.custom(DesignSystem.Typography.sans, size: 10))
-                .lineSpacing(4 - 10)
+                .font(DesignSystem.Typography.sans(DesignSystem.Typography.xs))
+                .lineSpacing(2)
                 .foregroundStyle(DesignSystem.Color.muted)
         }
-        .padding(12)
+        .padding(DesignSystem.Spacing.s3)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DesignSystem.Color.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(DesignSystem.Color.line, lineWidth: 1)
-        )
+        .sayloCard()
     }
 }
 
@@ -193,21 +195,16 @@ private struct DictationHomeView: View {
         HStack(spacing: 0) {
             // Center timeline
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: DesignSystem.Spacing.s6) {
                     Text("Welcome back, Mahesh")
-                        .font(.custom(DesignSystem.Typography.sans, size: 26))
-                        .fontWeight(.bold)
-                        .foregroundStyle(DesignSystem.Color.ink)
+                        .sayloHeadline()
 
-                                        VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: DesignSystem.Spacing.s3) {
                         HStack {
                             SayloSectionLabel("Today")
                             Spacer(minLength: 0)
-                            HStack(spacing: 12) {
-                                SearchField(text: $historyStore.searchQuery, placeholder: "Search…")
-                                    .frame(width: 180)
-                                Text("🔍").font(.system(size: 13)).foregroundStyle(DesignSystem.Color.muted)
-                            }
+                            SearchField(text: $historyStore.searchQuery, placeholder: "Search…")
+                                .frame(width: 200)
                         }
                         if timelineEntries.isEmpty {
                             EmptyTimelineView(hotkey: preferencesStore.hotkey.displayName)
@@ -220,8 +217,8 @@ private struct DictationHomeView: View {
                         }
                     }
                 }
-                .padding(.vertical, 28)
-                .padding(.horizontal, 36)
+                .padding(.vertical, DesignSystem.Spacing.s6)
+                .padding(.horizontal, DesignSystem.Spacing.s8)
             }
             .frame(maxWidth: .infinity)
 
@@ -246,19 +243,19 @@ private struct TimelineRow: View {
     let entry: DictationEntry
 
     var body: some View {
-        HStack(alignment: .top, spacing: 20) {
+        HStack(alignment: .top, spacing: DesignSystem.Spacing.s6) {
             Text(timeString)
-                .font(.custom(DesignSystem.Typography.mono, size: 12))
+                .font(DesignSystem.Typography.mono(DesignSystem.Typography.xs))
                 .foregroundStyle(DesignSystem.Color.muted)
                 .frame(width: 55, alignment: .leading)
             Text(entry.text)
-                .font(.custom(DesignSystem.Typography.sans, size: 14))
-                .lineSpacing(22 - 14)
+                .font(DesignSystem.Typography.sans(DesignSystem.Typography.base))
+                .lineSpacing(DesignSystem.Typography.bodyLineSpacing)
                 .foregroundStyle(DesignSystem.Color.ink)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.vertical, 14)
+        .padding(.vertical, DesignSystem.Spacing.s3)
         .overlay(alignment: .bottom) {
             Divider().overlay(DesignSystem.Color.line)
         }
@@ -282,17 +279,19 @@ private struct TimelineRow: View {
 private struct EmptyTimelineView: View {
     let hotkey: String
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: DesignSystem.Spacing.s4) {
             Text("No dictations today yet")
-                .font(.custom(DesignSystem.Typography.serif, size: 32))
+                .font(DesignSystem.Typography.serif(DesignSystem.Typography.serifLarge))
+                .italic()
                 .foregroundStyle(DesignSystem.Color.ink)
             Text("Hold \(hotkey) anywhere, speak, and release. The words land at your cursor.")
-                .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
+                .font(DesignSystem.Typography.sans(DesignSystem.Typography.base))
+                .lineSpacing(DesignSystem.Typography.bodyLineSpacing)
                 .foregroundStyle(DesignSystem.Color.muted)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 340)
+                .frame(maxWidth: 380)
         }
-        .padding(.vertical, 32)
+        .padding(.vertical, DesignSystem.Spacing.s8)
         .frame(maxWidth: .infinity)
     }
 }
@@ -306,23 +305,18 @@ private struct WidgetRail: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
-                VStack(alignment: .leading, spacing: 16) {
+            VStack(spacing: DesignSystem.Spacing.s6) {
+                VStack(alignment: .leading, spacing: DesignSystem.Spacing.s4) {
                     WidgetStat(value: totalWordsString, label: "total words")
                     WidgetStat(value: "\(wpmAverage)", label: "wpm average")
                     WidgetStat(value: "\(dayStreak)", label: "day streak")
                 }
-                .padding(18)
+                .padding(DesignSystem.Spacing.s4)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(DesignSystem.Color.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(DesignSystem.Color.line, lineWidth: 1)
-                )
+                .sayloCard()
             }
-            .padding(.vertical, 24)
-            .padding(.horizontal, 18)
+            .padding(.vertical, DesignSystem.Spacing.s6)
+            .padding(.horizontal, DesignSystem.Spacing.s4)
         }
         .background(DesignSystem.Color.chrome)
         .overlay(alignment: .leading) {
@@ -357,13 +351,16 @@ private struct WidgetStat: View {
     let label: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.s1) {
             Text(value)
-                .font(.custom(DesignSystem.Typography.sans, size: 24))
-                .fontWeight(.bold)
+                .font(DesignSystem.Typography.sans(
+                    DesignSystem.Typography.hero,
+                    weight: DesignSystem.Typography.weightBold
+                ))
+                .tracking(DesignSystem.Typography.trackingTitle)
                 .foregroundStyle(DesignSystem.Color.ink)
             Text(label)
-                .font(.custom(DesignSystem.Typography.sans, size: 11))
+                .font(DesignSystem.Typography.sans(DesignSystem.Typography.xs))
                 .foregroundStyle(DesignSystem.Color.muted)
         }
     }
@@ -376,16 +373,14 @@ struct InsightsContentView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: DesignSystem.Spacing.s6) {
                 HStack {
                     Text("Insights")
-                        .font(.custom(DesignSystem.Typography.sans, size: 26))
-                        .fontWeight(.bold)
-                        .foregroundStyle(DesignSystem.Color.ink)
+                        .sayloHeadline()
                     Spacer(minLength: 0)
                     Button {} label: {
                         Image(systemName: "clock")
-                            .font(.system(size: 12))
+                            .font(.system(size: DesignSystem.Typography.sm))
                             .foregroundStyle(DesignSystem.Color.ink)
                             .frame(width: 32, height: 32)
                             .background(Circle().stroke(DesignSystem.Color.line, lineWidth: 1))
@@ -394,95 +389,105 @@ struct InsightsContentView: View {
                 }
 
                 // Your usage tab
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: DesignSystem.Spacing.s2 + 2) {
                     Text("Your usage")
-                        .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
-                        .fontWeight(.semibold)
+                        .font(DesignSystem.Typography.sans(
+                            DesignSystem.Typography.sm,
+                            weight: DesignSystem.Typography.weightSemibold
+                        ))
                         .foregroundStyle(DesignSystem.Color.ink)
-                        .padding(.bottom, 10)
+                        .padding(.bottom, DesignSystem.Spacing.s2 + 2)
                         .overlay(alignment: .bottomLeading) {
-                            Rectangle().fill(DesignSystem.Color.ink).frame(height: 2)
+                            Rectangle()
+                                .fill(DesignSystem.Color.ink)
+                                .frame(height: 2)
                         }
                     Divider().overlay(DesignSystem.Color.line)
                 }
 
                 // Three stat cards
-                HStack(spacing: 16) {
+                HStack(spacing: DesignSystem.Spacing.s4) {
                     InsightsCard(title: "WORDS PER MINUTE") {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline, spacing: DesignSystem.Spacing.s2) {
                             Text("\(wpm)")
-                                .font(.custom(DesignSystem.Typography.sans, size: 32))
-                                .fontWeight(.bold)
+                                .font(DesignSystem.Typography.sans(
+                                    DesignSystem.Typography.xl,
+                                    weight: DesignSystem.Typography.weightBold
+                                ))
+                                .tracking(DesignSystem.Typography.trackingTight)
                                 .foregroundStyle(DesignSystem.Color.ink)
                             Text("Top 4%")
-                                .font(.custom(DesignSystem.Typography.mono, size: 11))
+                                .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                                 .foregroundStyle(DesignSystem.Color.accent)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(DesignSystem.Color.accentSoft)
-                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                                .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.sm))
                         }
                         SayloProgressBar(value: 0.78)
                     }
 
                     InsightsCard(title: "FIXES MADE BY SAYLO") {
                         Text("\(fixesTotal.formatted(.number.grouping(.automatic)))")
-                            .font(.custom(DesignSystem.Typography.sans, size: 32))
-                            .fontWeight(.bold)
+                            .font(DesignSystem.Typography.sans(
+                                DesignSystem.Typography.xl,
+                                weight: DesignSystem.Typography.weightBold
+                            ))
+                            .tracking(DesignSystem.Typography.trackingTight)
                             .foregroundStyle(DesignSystem.Color.ink)
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: DesignSystem.Spacing.s1) {
                             Text("\(wordsCorrected) words corrected")
                             Text("\(dictionaryFixes) dictionary fixes")
                         }
-                        .font(.custom(DesignSystem.Typography.sans, size: 12))
+                        .font(DesignSystem.Typography.sans(DesignSystem.Typography.xs))
                         .foregroundStyle(DesignSystem.Color.muted)
                     }
 
                     InsightsCard(title: "TOTAL WORDS DICTATED", trend: "↗ 1.4K% this month") {
                         Text("\(totalWords.formatted(.number.grouping(.automatic)))")
-                            .font(.custom(DesignSystem.Typography.sans, size: 32))
-                            .fontWeight(.bold)
+                            .font(DesignSystem.Typography.sans(
+                                DesignSystem.Typography.xl,
+                                weight: DesignSystem.Typography.weightBold
+                            ))
+                            .tracking(DesignSystem.Typography.trackingTight)
                             .foregroundStyle(DesignSystem.Color.ink)
                         Text("You've written \(scriptsEquivalent) short film scripts!")
-                            .font(.custom(DesignSystem.Typography.serif, size: 13))
+                            .font(DesignSystem.Typography.serif(DesignSystem.Typography.sm))
                             .italic()
                             .foregroundStyle(DesignSystem.Color.muted)
-                        HStack(spacing: 4) {
-                            RoundedRectangle(cornerRadius: 4).fill(DesignSystem.Color.accent)
-                                .frame(maxWidth: .infinity).frame(height: 8)
-                            RoundedRectangle(cornerRadius: 4).fill(DesignSystem.Color.segment)
-                                .frame(width: 40, height: 8)
-                        }
+                        SayloProgressBar(value: 0.82, height: 8)
                     }
                 }
 
                 // Bottom row: desktop usage + streak
-                HStack(alignment: .top, spacing: 16) {
+                HStack(alignment: .top, spacing: DesignSystem.Spacing.s4) {
                     InsightsCard(
                         title: "WHERE YOU DICTATE",
                         trend: appTotals.isEmpty ? nil : "\(appTotals.count) \(appTotals.count == 1 ? "app" : "apps")"
                     ) {
                         if appTotals.isEmpty {
                             Text("Dictate in any app and it will show up here.")
-                                .font(.custom(DesignSystem.Typography.serif, size: 13))
+                                .font(DesignSystem.Typography.serif(DesignSystem.Typography.sm))
                                 .italic()
                                 .foregroundStyle(DesignSystem.Color.muted)
                         } else {
                             VStack(spacing: DesignSystem.Spacing.s3) {
                                 ForEach(appTotals.prefix(3)) { row in
-                                    VStack(spacing: 6) {
+                                    VStack(spacing: DesignSystem.Spacing.s2) {
                                         HStack(alignment: .firstTextBaseline) {
                                             Text(row.label)
-                                                .font(.custom(DesignSystem.Typography.sans, size: 13))
-                                                .fontWeight(.medium)
+                                                .font(DesignSystem.Typography.sans(
+                                                    DesignSystem.Typography.sm,
+                                                    weight: DesignSystem.Typography.weightMedium
+                                                ))
                                                 .foregroundStyle(DesignSystem.Color.ink)
                                                 .lineLimit(1)
                                             Spacer(minLength: 0)
                                             Text("\(row.words.formatted(.number.grouping(.automatic))) words")
-                                                .font(.custom(DesignSystem.Typography.mono, size: 11))
+                                                .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                                                 .foregroundStyle(DesignSystem.Color.muted)
                                             Text("\(Int((row.share * 100).rounded()))%")
-                                                .font(.custom(DesignSystem.Typography.mono, size: 11))
+                                                .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                                                 .foregroundStyle(DesignSystem.Color.ink)
                                                 .frame(width: 34, alignment: .trailing)
                                         }
@@ -501,8 +506,8 @@ struct InsightsContentView: View {
                     }
                 }
             }
-            .padding(.vertical, 28)
-            .padding(.horizontal, 36)
+            .padding(.vertical, DesignSystem.Spacing.s6)
+            .padding(.horizontal, DesignSystem.Spacing.s8)
         }
     }
 
@@ -576,28 +581,23 @@ private struct InsightsCard<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.s3) {
             if let title {
                 HStack {
                     SayloSectionLabel(title)
                     Spacer(minLength: 0)
                     if let trend {
                         Text(trend)
-                            .font(.custom(DesignSystem.Typography.mono, size: 10))
+                            .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                             .foregroundStyle(DesignSystem.Color.accent)
                     }
                 }
             }
             content
         }
-        .padding(20)
+        .padding(DesignSystem.Spacing.s6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DesignSystem.Color.chrome)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(DesignSystem.Color.line, lineWidth: 1)
-        )
+        .sayloCard()
     }
 }
 
@@ -611,7 +611,8 @@ private struct UsageHeatmap: View {
 
     private let weeks = 26
     private let cell: CGFloat = 12
-    private let gap: CGFloat = 3
+    private let cellRadius: CGFloat = 2
+    private let gap: CGFloat = DesignSystem.Spacing.s1 - 1
     private let cal = Calendar.current
 
     private struct DayCell: Identifiable {
@@ -652,12 +653,18 @@ private struct UsageHeatmap: View {
         return f.string(from: date)
     }
 
-    /// Month label sits above the first week column of each month.
+    /// Month label sits above the first week column of each month, skipped
+    /// when it would collide with the previous label.
     private var monthLabels: [String?] {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "MMM"
-        return grid.map { column in
+        let minimumColumnGap = 3
+        var lastLabelledColumn = -minimumColumnGap
+
+        return grid.enumerated().map { index, column in
+            defer { lastLabelledColumn = index }
+            guard index - lastLabelledColumn >= minimumColumnGap else { return nil }
             guard let first = column.compactMap({ $0 }).first?.date else { return nil }
             let previous = cal.date(byAdding: .day, value: -7, to: first)
             guard let previous,
@@ -667,12 +674,13 @@ private struct UsageHeatmap: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.s2) {
             HStack(spacing: gap) {
                 ForEach(Array(monthLabels.enumerated()), id: \.offset) { _, label in
                     Text(label ?? "")
-                        .font(.custom(DesignSystem.Typography.mono, size: 9))
+                        .font(DesignSystem.Typography.mono(DesignSystem.Typography.nano))
                         .foregroundStyle(DesignSystem.Color.muted)
+                        .fixedSize()
                         .frame(width: cell, alignment: .leading)
                 }
             }
@@ -681,7 +689,7 @@ private struct UsageHeatmap: View {
                 VStack(spacing: gap) {
                     ForEach(Array(weekdayInitials.enumerated()), id: \.offset) { index, initial in
                         Text(index % 2 == 1 ? initial : "")
-                            .font(.custom(DesignSystem.Typography.mono, size: 8))
+                            .font(DesignSystem.Typography.mono(DesignSystem.Typography.nano))
                             .foregroundStyle(DesignSystem.Color.muted)
                             .frame(width: 14, height: cell, alignment: .trailing)
                     }
@@ -714,11 +722,11 @@ private struct UsageHeatmap: View {
     private func cellView(_ day: DayCell) -> some View {
         let isHovered = hovered?.id == day.id
         let isFuture = day.date > cal.startOfDay(for: Date())
-        return RoundedRectangle(cornerRadius: 2)
+        return RoundedRectangle(cornerRadius: cellRadius)
             .fill(color(for: day))
             .frame(width: cell, height: cell)
             .overlay(
-                RoundedRectangle(cornerRadius: 2)
+                RoundedRectangle(cornerRadius: cellRadius)
                     .stroke(isHovered ? DesignSystem.Color.ink : .clear, lineWidth: 1)
             )
             .opacity(isFuture ? 0.35 : 1)
@@ -745,27 +753,27 @@ private struct UsageHeatmap: View {
     @ViewBuilder
     private var readout: some View {
         if let day = hovered {
-            HStack(spacing: 6) {
+            HStack(spacing: DesignSystem.Spacing.s2) {
                 Text(Self.displayDate(day.date))
-                    .font(.custom(DesignSystem.Typography.mono, size: 10))
+                    .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                     .foregroundStyle(DesignSystem.Color.ink)
                 Text(day.words == 0 ? "no words dictated" : "\(day.words) \(day.words == 1 ? "word" : "words")")
-                    .font(.custom(DesignSystem.Typography.mono, size: 10))
+                    .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                     .foregroundStyle(DesignSystem.Color.muted)
             }
             .frame(height: 14)
         } else {
-            HStack(spacing: 6) {
+            HStack(spacing: DesignSystem.Spacing.s2) {
                 Text("Fewer")
-                    .font(.custom(DesignSystem.Typography.mono, size: 9))
+                    .font(DesignSystem.Typography.mono(DesignSystem.Typography.nano))
                     .foregroundStyle(DesignSystem.Color.muted)
                 ForEach(0..<4, id: \.self) { step in
-                    RoundedRectangle(cornerRadius: 2)
+                    RoundedRectangle(cornerRadius: cellRadius)
                         .fill(legendColor(step))
                         .frame(width: 10, height: 10)
                 }
                 Text("More")
-                    .font(.custom(DesignSystem.Typography.mono, size: 9))
+                    .font(DesignSystem.Typography.mono(DesignSystem.Typography.nano))
                     .foregroundStyle(DesignSystem.Color.muted)
             }
             .frame(height: 14)

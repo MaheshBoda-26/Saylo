@@ -40,8 +40,7 @@ public struct WaveformLoader: View {
 
     private var resolvedColor: Color {
         if let color { return color }
-        // Matches `bg-zinc-800 dark:bg-white`
-        return colorScheme == .dark ? .white : Color(red: 0x27/255, green: 0x27/255, blue: 0x2A/255)
+        return colorScheme == .dark ? DesignSystem.Color.surface : DesignSystem.Color.ink
     }
 
     public var body: some View {

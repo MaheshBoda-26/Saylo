@@ -38,6 +38,14 @@ cp "${RES_SRC}/Info.plist" "${CONTENTS_DIR}/Info.plist"
 cp "${RES_SRC}/AppIcon.icns" "${RESOURCES_DIR}/AppIcon.icns"
 cp "${RES_SRC}/whistle.cact" "${RESOURCES_DIR}/whistle.cact"
 
+# Copy the design-system fonts (Inter, Instrument Serif, Geist Mono) so
+# DesignSystem.registerBundledFonts() finds them in the shipped app too.
+if [[ -d "${RES_SRC}/Fonts" ]]; then
+    mkdir -p "${RESOURCES_DIR}/Fonts"
+    cp "${RES_SRC}/Fonts"/*.ttf "${RESOURCES_DIR}/Fonts/"
+    echo "  ✓ Fonts"
+fi
+
 # Copy vendor libraries
 mkdir -p "${RESOURCES_DIR}/vendor/macos-arm64"
 cp "${PROJECT_DIR}/vendor/macos-arm64/libneedle.a" "${RESOURCES_DIR}/vendor/macos-arm64/"
