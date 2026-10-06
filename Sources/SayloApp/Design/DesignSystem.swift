@@ -10,32 +10,32 @@ public enum DesignSystem {
     // MARK: - Colors
 
     public enum Color {
-        public static let surface = SwiftUI.Color(hex: "#FFFFFF")
-        public static let ground = SwiftUI.Color(hex: "#F5F4F0")
-        public static let chrome = SwiftUI.Color(hex: "#FBFBFA")
-        public static let line = SwiftUI.Color(hex: "#E5E3DD")
-        public static let muted = SwiftUI.Color(hex: "#73776F")
-        public static let ink = SwiftUI.Color(hex: "#1B1D1C")
-        public static let accent = SwiftUI.Color(hex: "#3E7C6C")
-        public static let accentSoft = SwiftUI.Color(hex: "#E6EFEC")
-        public static let danger = SwiftUI.Color(hex: "#B5483B")
+        public static let surface = colorFromHex("#FFFFFF")
+        public static let ground = colorFromHex("#F5F4F0")
+        public static let chrome = colorFromHex("#FBFBFA")
+        public static let line = colorFromHex("#E5E3DD")
+        public static let muted = colorFromHex("#73776F")
+        public static let ink = colorFromHex("#1B1D1C")
+        public static let accent = colorFromHex("#3E7C6C")
+        public static let accentSoft = colorFromHex("#E6EFEC")
+        public static let danger = colorFromHex("#B5483B")
         /// Secondary copy on an ink surface — surface at muted opacity.
-        public static let heroSub = SwiftUI.Color(hex: "#A5A39B")
+        public static let heroSub = colorFromHex("#A5A39B")
         /// Chip fill inside an ink card.
-        public static let chipDark = SwiftUI.Color(hex: "#2C302E")
+        public static let chipDark = colorFromHex("#2C302E")
         /// Empty track (progress bar, toggle off, heatmap cell).
-        public static let track = SwiftUI.Color(hex: "#E5E3DD")
+        public static let track = colorFromHex("#E5E3DD")
         /// Inert bar/segment sitting next to an accent fill.
-        public static let segment = SwiftUI.Color(hex: "#DAD8D0")
+        public static let segment = colorFromHex("#DAD8D0")
         /// Destructive tint behind a warning chip.
-        public static let dangerSoft = SwiftUI.Color(hex: "#F6E9E6")
+        public static let dangerSoft = colorFromHex("#F6E9E6")
         /// Selected sidebar row fill (warm taupe, Flow reference).
-        public static let sidebarSelected = SwiftUI.Color(hex: "#EAE6D9")
+        public static let sidebarSelected = colorFromHex("#EAE6D9")
         /// Stats rail card fill (warm beige, Flow reference).
-        public static let statCard = SwiftUI.Color(hex: "#EFE9DC")
+        public static let statCard = colorFromHex("#EFE9DC")
         /// "Pro" badge lavender.
-        public static let proBadgeBg = SwiftUI.Color(hex: "#EBDFFF")
-        public static let proBadgeText = SwiftUI.Color(hex: "#6D28D9")
+        public static let proBadgeBg = colorFromHex("#EBDFFF")
+        public static let proBadgeText = colorFromHex("#6D28D9")
     }
 
     // MARK: - Bundled Fonts
@@ -229,32 +229,30 @@ private static func bundledFontURLs() -> [URL] {
     }
 }
 
-// MARK: - Color Extension for Hex
+// MARK: - Color Hex Helper
 
-private extension SwiftUI.Color {
-    init(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let a, r, g, b: UInt64
-        switch hex.count {
-        case 3: // RGB (12-bit)
-            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: // RGB (24-bit)
-            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: // ARGB (32-bit)
-            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-        default:
-            (a, r, g, b) = (1, 1, 1, 0)
-        }
-        self.init(
-            .sRGB,
-            red: Double(r) / 255,
-            green: Double(g) / 255,
-            blue: Double(b) / 255,
-            opacity: Double(a) / 255
-        )
+private func colorFromHex(_ hex: String) -> SwiftUI.Color {
+    let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+    var int: UInt64 = 0
+    Scanner(string: hex).scanHexInt64(&int)
+    let a, r, g, b: UInt64
+    switch hex.count {
+    case 3: // RGB (12-bit)
+        (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+    case 6: // RGB (24-bit)
+        (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+    case 8: // ARGB (32-bit)
+        (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+    default:
+        (a, r, g, b) = (1, 1, 1, 0)
     }
+    return SwiftUI.Color(
+        .sRGB,
+        red: Double(r) / 255,
+        green: Double(g) / 255,
+        blue: Double(b) / 255,
+        opacity: Double(a) / 255
+    )
 }
 
 // MARK: - View Extensions for Design System
