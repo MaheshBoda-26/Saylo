@@ -27,7 +27,10 @@ let package = Package(
         ),
         .target(
             name: "DesignSystem",
-            path: "Sources/SayloApp/Design"
+            path: "Sources/SayloApp/Design",
+            swiftSettings: [
+                .unsafeFlags(["-Xfrontend", "-disable-round-trip-debug-types"])
+            ]
         ),
         .executableTarget(
             name: "SayloApp",
