@@ -120,7 +120,6 @@ private struct SayloSidebar: View {
                     Divider().overlay(DesignSystem.Color.line)
                         .padding(.top, 10)
                     SidebarFooterRow(emoji: "⚙", title: "Settings") { showingSettings = true }
-                    SidebarFooterRow(emoji: "?", title: "Help") { showingSettings = true }
                 }
             }
         }
@@ -200,15 +199,7 @@ private struct DictationHomeView: View {
                         .fontWeight(.bold)
                         .foregroundStyle(DesignSystem.Color.ink)
 
-                    SayloSerifHeroCard(
-                        headline: "Working around other people?",
-                        copy: "With Whistle on-device, whisper or speak softly and Saylo captures every word with zero cloud latency.",
-                        ctaTitle: "Show me how"
-                    ) {
-                        onOpenSettings()
-                    }
-
-                    VStack(alignment: .leading, spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             SayloSectionLabel("Today")
                             Spacer(minLength: 0)
@@ -320,36 +311,6 @@ private struct WidgetRail: View {
                     WidgetStat(value: totalWordsString, label: "total words")
                     WidgetStat(value: "\(wpmAverage)", label: "wpm average")
                     WidgetStat(value: "\(dayStreak)", label: "day streak")
-                }
-                .padding(18)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(DesignSystem.Color.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(DesignSystem.Color.line, lineWidth: 1)
-                )
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Voice Profile Active!")
-                        .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
-                        .fontWeight(.semibold)
-                        .foregroundStyle(DesignSystem.Color.ink)
-                    Text("Whistle custom vocabulary tuned to your technical phrasing.")
-                        .font(.custom(DesignSystem.Typography.sans, size: 12))
-                        .foregroundStyle(DesignSystem.Color.muted)
-                    Button(action: onViewReport) {
-                        Text("View report")
-                            .font(.custom(DesignSystem.Typography.sans, size: 12))
-                            .fontWeight(.medium)
-                            .foregroundStyle(.white)
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(DesignSystem.Color.accent)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 4)
                 }
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -533,21 +494,11 @@ struct InsightsContentView: View {
                                 .fontWeight(.bold)
                                 .foregroundStyle(DesignSystem.Color.ink)
                             Spacer(minLength: 0)
-                            Text("LONGEST STREAK | \(streak) DAYS")
+                            Text("LONGEST STREAK | \(longestStreak) DAYS")
                                 .font(.custom(DesignSystem.Typography.mono, size: 10))
                                 .foregroundStyle(DesignSystem.Color.muted)
                         }
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                ForEach(["Jun", "Jul", "Aug", "Sep", "Oct"], id: \.self) { m in
-                                    Text(m)
-                                        .font(.custom(DesignSystem.Typography.mono, size: 10))
-                                        .foregroundStyle(DesignSystem.Color.muted)
-                                    if m != "Oct" { Spacer(minLength: 0) }
-                                }
-                            }
-                            HeatmapGrid(activeDays: activeDaySet)
-                        }
+                        UsageHeatmap(dailyWords: dailyWordCounts)
                     }
                 }
             }
@@ -580,10 +531,19 @@ struct InsightsContentView: View {
         EntryStats.dayStreak(for: historyStore.entries.map(\.date))
     }
 
-    private var activeDaySet: Set<String> {
+    private var dailyWordCounts: [String: Int] {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
-        return Set(historyStore.entries.map { f.string(from: $0.date) })
+        var totals: [String: Int] = [:]
+        for entry in historyStore.entries {
+            totals[f.string(from: entry.date), default: 0] += EntryStats.wordCount(entry.text)
+        }
+        return totals
+    }
+
+    private var longestStreak: Int {
+        EntryStats.longestStreak(for: historyStore.entries.map(\.date))
     }
 
     private var appTotals: [(app: String, label: String, emoji: String, words: Int, share: Double, color: SwiftUI.Color)] {
@@ -644,43 +604,191 @@ private struct InsightsCard<Content: View>: View {
     }
 }
 
-private struct HeatmapGrid: View {
-    let activeDays: Set<String>
-    private let cols = 5
-    private let rows = 5
+/// Real calendar heatmap: one column per week, one row per weekday,
+/// ending with the current week. Colour intensity is derived from the
+/// number of words dictated that day.
+private struct UsageHeatmap: View {
+    let dailyWords: [String: Int]
 
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<cols, id: \.self) { c in
-                VStack(spacing: 4) {
-                    ForEach(0..<rows, id: \.self) { r in
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(cellColor(col: c, row: r))
-                            .frame(width: 14, height: 14)
-                    }
-                }
+    @State private var hovered: DayCell?
+
+    private let weeks = 26
+    private let cell: CGFloat = 12
+    private let gap: CGFloat = 3
+    private let cal = Calendar.current
+
+    private struct DayCell: Identifiable {
+        let date: Date
+        let words: Int
+        var id: Date { Calendar.current.startOfDay(for: date) }
+    }
+
+    /// Weeks oldest→newest; each is 7 dates, `nil` before the window starts.
+    private var grid: [[DayCell?]] {
+        let today = cal.startOfDay(for: Date())
+        let weekday = cal.component(.weekday, from: today) // 1 = Sunday
+        let currentWeekStart = cal.date(byAdding: .day, value: -(weekday - 1), to: today) ?? today
+        let firstWeekStart = cal.date(byAdding: .day, value: -7 * (weeks - 1), to: currentWeekStart) ?? currentWeekStart
+
+        return (0..<weeks).map { w in
+            let weekStart = cal.date(byAdding: .day, value: 7 * w, to: firstWeekStart) ?? firstWeekStart
+            return (0..<7).map { d in
+                guard let date = cal.date(byAdding: .day, value: d, to: weekStart) else { return nil }
+                return DayCell(date: date, words: words(on: date))
             }
         }
     }
 
-    /// Most recent 25 days mapped oldest→newest across columns;
-    /// active = accent, otherwise track. Falls back to Paper's
-    /// illustrative ramp when there is no history yet.
-    private func cellColor(col: Int, row: Int) -> SwiftUI.Color {
-        let index = col * rows + row // 0 oldest
-        let cal = Calendar.current
-        let day = cal.date(byAdding: .day, value: index - (cols * rows - 1), to: Date()) ?? Date()
+    private var maxWords: Int {
+        max(dailyWords.values.max() ?? 0, 1)
+    }
+
+    private func words(on date: Date) -> Int {
+        dailyWords[key(for: date)] ?? 0
+    }
+
+    private func key(for date: Date) -> String {
         let f = DateFormatter()
+        f.calendar = cal
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
-        if activeDays.isEmpty {
-            // Illustrative ramp matching Paper when empty
-            let threshold = [20, 17, 13, 8, 0][col]
-            return index >= threshold ? DesignSystem.Color.accent : DesignSystem.Color.track
+        return f.string(from: date)
+    }
+
+    /// Month label sits above the first week column of each month.
+    private var monthLabels: [String?] {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "MMM"
+        return grid.map { column in
+            guard let first = column.compactMap({ $0 }).first?.date else { return nil }
+            let previous = cal.date(byAdding: .day, value: -7, to: first)
+            guard let previous,
+                  cal.component(.month, from: previous) != cal.component(.month, from: first) else { return nil }
+            return f.string(from: first)
         }
-        if activeDays.contains(f.string(from: day)) {
-            return DesignSystem.Color.accent
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: gap) {
+                ForEach(Array(monthLabels.enumerated()), id: \.offset) { _, label in
+                    Text(label ?? "")
+                        .font(.custom(DesignSystem.Typography.mono, size: 9))
+                        .foregroundStyle(DesignSystem.Color.muted)
+                        .frame(width: cell, alignment: .leading)
+                }
+            }
+
+            HStack(alignment: .top, spacing: gap) {
+                VStack(spacing: gap) {
+                    ForEach(Array(weekdayInitials.enumerated()), id: \.offset) { index, initial in
+                        Text(index % 2 == 1 ? initial : "")
+                            .font(.custom(DesignSystem.Typography.mono, size: 8))
+                            .foregroundStyle(DesignSystem.Color.muted)
+                            .frame(width: 14, height: cell, alignment: .trailing)
+                    }
+                }
+
+                HStack(spacing: gap) {
+                    ForEach(Array(grid.enumerated()), id: \.offset) { _, column in
+                        VStack(spacing: gap) {
+                            ForEach(Array(column.enumerated()), id: \.offset) { _, day in
+                                if let day {
+                                    cellView(day)
+                                } else {
+                                    Color.clear.frame(width: cell, height: cell)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            readout
         }
-        return DesignSystem.Color.track
+    }
+
+    private var weekdayInitials: [String] {
+        let symbols = cal.shortWeekdaySymbols // index 0 = Sunday
+        return (0..<7).map { String(symbols[$0].prefix(1)) }
+    }
+
+    private func cellView(_ day: DayCell) -> some View {
+        let isHovered = hovered?.id == day.id
+        let isFuture = day.date > cal.startOfDay(for: Date())
+        return RoundedRectangle(cornerRadius: 2)
+            .fill(color(for: day))
+            .frame(width: cell, height: cell)
+            .overlay(
+                RoundedRectangle(cornerRadius: 2)
+                    .stroke(isHovered ? DesignSystem.Color.ink : .clear, lineWidth: 1)
+            )
+            .opacity(isFuture ? 0.35 : 1)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                hovered = inside ? day : (hovered?.id == day.id ? nil : hovered)
+            }
+            .help("\(Self.displayDate(day.date)): \(day.words) \(day.words == 1 ? "word" : "words")")
+    }
+
+    private func color(for day: DayCell) -> SwiftUI.Color {
+        guard day.words > 0 else { return DesignSystem.Color.track }
+        let ratio = Double(day.words) / Double(maxWords)
+        let steps: [Double] = [0.25, 0.5, 0.75]
+        let level = steps.firstIndex(where: { ratio <= $0 }) ?? 3
+        switch level {
+        case 0: return DesignSystem.Color.accent.opacity(0.28)
+        case 1: return DesignSystem.Color.accent.opacity(0.5)
+        case 2: return DesignSystem.Color.accent.opacity(0.74)
+        default: return DesignSystem.Color.accent
+        }
+    }
+
+    @ViewBuilder
+    private var readout: some View {
+        if let day = hovered {
+            HStack(spacing: 6) {
+                Text(Self.displayDate(day.date))
+                    .font(.custom(DesignSystem.Typography.mono, size: 10))
+                    .foregroundStyle(DesignSystem.Color.ink)
+                Text(day.words == 0 ? "no words dictated" : "\(day.words) \(day.words == 1 ? "word" : "words")")
+                    .font(.custom(DesignSystem.Typography.mono, size: 10))
+                    .foregroundStyle(DesignSystem.Color.muted)
+            }
+            .frame(height: 14)
+        } else {
+            HStack(spacing: 6) {
+                Text("Fewer")
+                    .font(.custom(DesignSystem.Typography.mono, size: 9))
+                    .foregroundStyle(DesignSystem.Color.muted)
+                ForEach(0..<4, id: \.self) { step in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(legendColor(step))
+                        .frame(width: 10, height: 10)
+                }
+                Text("More")
+                    .font(.custom(DesignSystem.Typography.mono, size: 9))
+                    .foregroundStyle(DesignSystem.Color.muted)
+            }
+            .frame(height: 14)
+        }
+    }
+
+    private func legendColor(_ level: Int) -> SwiftUI.Color {
+        switch level {
+        case 0: return DesignSystem.Color.accent.opacity(0.28)
+        case 1: return DesignSystem.Color.accent.opacity(0.5)
+        case 2: return DesignSystem.Color.accent.opacity(0.74)
+        default: return DesignSystem.Color.accent
+        }
+    }
+
+    private static func displayDate(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "EEE, d MMM yyyy"
+        return f.string(from: date)
     }
 }
 
@@ -723,5 +831,20 @@ enum EntryStats {
             cursor = prev
         }
         return streak
+    }
+
+    /// Longest run of consecutive days with at least one entry.
+    static func longestStreak(for dates: [Date]) -> Int {
+        guard !dates.isEmpty else { return 0 }
+        let cal = Calendar.current
+        let days = Set(dates.map { cal.startOfDay(for: $0) }).sorted()
+        var longest = 1
+        var run = 1
+        for i in 1..<days.count {
+            let isConsecutive = cal.dateComponents([.day], from: days[i - 1], to: days[i]).day == 1
+            run = isConsecutive ? run + 1 : 1
+            longest = max(longest, run)
+        }
+        return longest
     }
 }

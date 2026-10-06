@@ -183,10 +183,11 @@ private struct PillContent: View {
         }
     }
 
-    /// Inference — Paper State 03: "Processing… · ~11ms TTFT"
+    /// Inference — Paper State 03: waveform-loader + "Processing… · ~11ms TTFT"
     @ViewBuilder
     private var transcribingView: some View {
         HStack(spacing: DesignSystem.Spacing.s2) {
+            WaveformLoader(color: DesignSystem.Color.surface)
             Text("Processing…")
                 .font(.custom(DesignSystem.Typography.sans, size: DesignSystem.Typography.sm))
                 .fontWeight(.medium)

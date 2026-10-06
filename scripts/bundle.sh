@@ -81,8 +81,18 @@ install_name_tool -add_rpath "@executable_path/../Frameworks" "${MACOS_DIR}/${AP
 echo "APPL????" > "${CONTENTS_DIR}/PkgInfo"
 
 # Sign the app (ad-hoc)
-echo "✍️  Signing app (ad-hoc)..."
-codesign --force --deep --sign - "${APP_DIR}"
+#
+# The explicit designated requirement matters: without it, ad-hoc signing
+# falls back to a cdhash-based requirement. Every rebuild changes the
+# binary, so the cdhash changes, and macOS TCC treats the app as a
+# different app — the Accessibility grant silently stops applying and
+# the global-hotkey event tap fails with "check Accessibility
+# permissions". Pinning the requirement to the bundle identifier keeps
+# the TCC identity stable across rebuilds.
+echo "✍️  Signing app (ad-hoc, stable requirement)..."
+codesign --force --deep --sign - \
+  -r '=designated => identifier "com.saylo.app"' \
+  "${APP_DIR}"
 
 # Verify signature
 codesign --verify --deep --strict "${APP_DIR}" && echo "✅ Signature verified"

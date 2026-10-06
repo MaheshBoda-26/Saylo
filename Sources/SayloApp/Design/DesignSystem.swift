@@ -306,14 +306,7 @@ public struct SayloWindowChrome: View {
 
     public var body: some View {
         HStack {
-            HStack(spacing: 8) {
-                Circle().fill(SwiftUI.Color(hex: "#FF5F56")).frame(width: 12, height: 12)
-                    .overlay(Circle().stroke(.black.opacity(0.1), lineWidth: 0.5))
-                Circle().fill(SwiftUI.Color(hex: "#FFBD2E")).frame(width: 12, height: 12)
-                    .overlay(Circle().stroke(.black.opacity(0.1), lineWidth: 0.5))
-                Circle().fill(SwiftUI.Color(hex: "#27C93F")).frame(width: 12, height: 12)
-                    .overlay(Circle().stroke(.black.opacity(0.1), lineWidth: 0.5))
-            }
+            Spacer().frame(width: 50)
             Spacer(minLength: 0)
             HStack(spacing: DesignSystem.Spacing.s2) {
                 if title == "Saylo" {

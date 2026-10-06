@@ -12,6 +12,17 @@ public struct SettingsWindow: View {
     @EnvironmentObject private var permissionsManager: PermissionsManager
 
     @State private var selectedTab: PaperSettingsTab = .system
+    @State private var tabHistory: [PaperSettingsTab] = [.system]
+
+    private var canGoBack: Bool { tabHistory.count > 1 }
+
+    private func goBack() {
+        guard canGoBack else { return }
+        tabHistory.removeLast()
+        if let previous = tabHistory.last {
+            selectedTab = previous
+        }
+    }
 
     public init() {}
 
@@ -20,6 +31,19 @@ public struct SettingsWindow: View {
             // Sidebar
             VStack {
                 VStack(alignment: .leading, spacing: 4) {
+                    Button(action: goBack) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(canGoBack ? DesignSystem.Color.ink : DesignSystem.Color.muted)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canGoBack)
+                    .help("Back")
+                    .padding(.horizontal, 2)
+                    .padding(.bottom, 4)
+
                     Text("SETTINGS")
                         .font(.custom(DesignSystem.Typography.mono, size: 10))
                         .tracking(DesignSystem.Typography.trackingWide)
@@ -29,6 +53,9 @@ public struct SettingsWindow: View {
                     ForEach(PaperSettingsTab.allCases) { tab in
                         SayloNavRow(title: tab.title, emoji: tab.emoji, isActive: selectedTab == tab) {
                             selectedTab = tab
+                            if tabHistory.last != tab {
+                                tabHistory.append(tab)
+                            }
                         }
                     }
                 }
