@@ -1,0 +1,41 @@
+# SwiftFormat configuration — https://github.com/nicklockwood/SwiftFormat
+#
+# Run:  swiftformat .
+# Check: swiftformat --lint .
+#
+# The settings below describe the style the codebase already uses, so a first
+# run should be close to a no-op rather than a mass rewrite.
+
+--swiftversion 5.9
+
+# Indentation and line width
+--indent 4
+--indentcase false
+--maxwidth 110
+
+# Imports: keep groups intact, but drop genuinely unused ones
+--importgrouping testable-first
+--stripunusedargs closure-only
+
+# Prefer explicit, readable constructs over terse ones
+--commas inline
+--trimwhitespace always
+--semicolons never
+--self remove
+--redundanttype inferred
+--shortoperators false
+
+# Never reflow prose or switch @testable placement
+--disable wrapMultilineStatementBraces
+--disable redundantClosure
+--disable preferKeyPath
+
+# Keep the existing trailing-closure and brace style
+--closingparen balanced
+--wraparguments before-first
+--wrapparameters before-first
+--wrapconditions after-first
+--guardelse same-line
+
+# Exclude generated / vendored content
+--exclude .build,vendor,.swiftpm

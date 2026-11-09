@@ -751,6 +751,60 @@ There is no `.swiftlint.yml`, `.swift-format`, or editor config. Given the file 
 
 ---
 
+## Resolution (applied)
+
+All findings above were fixed in a follow-up pass. Verification for this pass:
+
+- `swift build` — clean from an empty scratch path (Swift 6.0.3, macOS 15.4 SDK), **0 errors, 0 warnings**
+  (the only remaining linker line is the vendor archive's own deployment-target notice)
+- `swift test` — **22/22 tests pass**, including new regressions for the correction
+  loop, chunker termination, per-buffer normalisation, and long-clip speech detection
+- `./scripts/bundle.sh` — app bundle builds, signs, and verifies with a stable
+  designated requirement
+- `swift run saylo-cli --file vendor/test.wav` — end-to-end transcription works (7 ms TTFT)
+
+| Finding | Fix |
+| --- | --- |
+| CR-01 | `CorrectionEngine` rewritten as a single leftmost-longest pass over the original text; matches can no longer feed their own rule. Regression test added. |
+| CR-02 | `permissionsManager` injected at both `SettingsWindow` call sites (main window sheet and menu-bar sheet). |
+| CR-03 | `WhistleEngine` is optional; a load failure produces `startupError` and a banner instead of `fatalError`. Dictionary input throws `StoreError`. |
+| CR-04 | `AudioRecorder` tracks `tapInstalled`, tears the tap down on every failure path, and bounds capture at 300 s. |
+| CR-05 | The ⋯ button is now a menu; delete requires a confirmation dialog, as does Clear History. |
+| WR-01 | `updateConfig` is called from `ensureTap` and restarts the tap only when the config actually changed. |
+| WR-02 | The tap listens to `flagsChanged` and matches Right Option by keycode `0x3D`. |
+| WR-03 | Stop is deferred by one double-tap window while hands-free is enabled, so the second press can latch. A latched stop blocks an immediate restart. |
+| WR-04 | Callback returns `passUnretained`. |
+| WR-05 | `correctionPairs` (regex) and `phraseReplacements` (plain) are separate inputs to their consumers. |
+| WR-06 | Fabricated metrics, the hardcoded name, "Top 4%", "1.4K%", and fixed model size all replaced with computed values or `AppInfo`. |
+| WR-07 | `MenuBarExtra(isInserted:)` removes the item when the preference is off. |
+| WR-08 | Open Dictionary / Clear History notifications are observed in `MainWindow`. |
+| WR-09 | `muteAudioWhileDictating` removed; `storeHistory` is now honoured; every remaining preference is read. |
+| WR-10 | An unreadable store is moved aside (`store.corrupt-<ts>.json`) instead of being overwritten. |
+| WR-11 | Clipboard restore is skipped when `changeCount` shows another app claimed it. |
+| WR-12 | Re-insert activates the remembered target app before pasting. |
+| WR-13 | Heatmap labels only consume the spacing budget when a label is actually emitted. |
+| WR-14 | The pill waveform uses `TimelineView`; no timer to leak. |
+| WR-15 | Pill placement uses `visibleFrame`; the hotkey label comes from preferences. |
+| WR-16 | Capture is bounded; `AudioRecorder.load` throws typed errors instead of returning `[]`. |
+| WR-17 | Engine output is read up to the NUL terminator; a full buffer throws `outputTooLong`. |
+| WR-18 | Integration tests use `.enabled(if:)` so a missing `vendor/` skips rather than passes. |
+| WR-19 | Store directory is `0700` and `store.json` is `0600`. |
+| WR-20 | The destination bundle ID is captured once, before transcription. |
+| WR-21 | `ReplacementUpdate` makes clear/set/unchanged explicit; a single write per edit. |
+| IN-01…IN-14 | Dead symbols, inert buttons, redundant `@StateObject`s, bogus plist keys, the `deinit`-less timer, silent colour fallback, chunker guard, and CLI message all addressed; `.swiftformat` added. |
+
+### Deliberate non-changes
+
+- `AVAudioFormat(…)!` in `AudioRecorder` stays force-unwrapped: the initialiser only
+  returns `nil` for an invalid parameter combination, and these are compile-time constants.
+- `swift-tools-version:6.0` stays. The package genuinely needs the Swift 6 toolchain,
+  which `README.md` now states explicitly.
+- Transcript storage remains plaintext at `0600`. Encrypting it is a product decision
+  (key management, migration), not a code defect; it is documented in `README.md`.
+
+---
+
 _Reviewed: 2026-11-09_
 _Reviewer: gsd-code-reviewer (deep pass, whole repository)_
 _Depth: deep_
+_Fixed: 2026-11-09_
