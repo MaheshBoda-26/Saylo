@@ -97,19 +97,6 @@ public struct DictionaryEntry: Codable, Sendable, Identifiable, Hashable {
     }
 }
 
-public extension DictionaryEntry {
-    var displayText: String {
-        if let replacement = replacement {
-            return "\(phrase) → \(replacement)"
-        }
-        return phrase
-    }
-
-    var keywordForBiasing: String {
-        return phrase
-    }
-}
-
 public enum DictionaryEntryType: String, Codable, Sendable, CaseIterable, Identifiable {
     case word = "word"
     case correction = "correction"
@@ -124,47 +111,7 @@ public enum DictionaryEntryType: String, Codable, Sendable, CaseIterable, Identi
     }
 }
 
-// MARK: - Preferences (AppStorage backed, not JSONStore)
-
-public struct Preferences: Codable, Sendable, Equatable {
-    public var hotkey: HotkeyConfig
-    public var language: String
-    public var playSounds: Bool
-    public var handsFreeEnabled: Bool
-    public var launchAtLogin: Bool
-    public var pillPosition: PillPosition
-    public var showMenuBarIcon: Bool
-    public var maxHistoryItems: Int
-    public var showFloatingPillAlways: Bool
-    public var showInDock: Bool
-    public var muteAudioWhileDictating: Bool
-
-    public init(
-        hotkey: HotkeyConfig = .fn,
-        language: String = "auto",
-        playSounds: Bool = true,
-        handsFreeEnabled: Bool = true,
-        launchAtLogin: Bool = false,
-        pillPosition: PillPosition = .bottomCenter,
-        showMenuBarIcon: Bool = true,
-        maxHistoryItems: Int = 1000,
-        showFloatingPillAlways: Bool = false,
-        showInDock: Bool = true,
-        muteAudioWhileDictating: Bool = false
-    ) {
-        self.hotkey = hotkey
-        self.language = language
-        self.playSounds = playSounds
-        self.handsFreeEnabled = handsFreeEnabled
-        self.launchAtLogin = launchAtLogin
-        self.pillPosition = pillPosition
-        self.showMenuBarIcon = showMenuBarIcon
-        self.maxHistoryItems = maxHistoryItems
-        self.showFloatingPillAlways = showFloatingPillAlways
-        self.showInDock = showInDock
-        self.muteAudioWhileDictating = muteAudioWhileDictating
-    }
-}
+// MARK: - Preferences are `@AppStorage`-backed in PreferencesStore
 
 public enum HotkeyConfig: String, Codable, Sendable, CaseIterable, Identifiable {
     case fn = "fn"
@@ -179,17 +126,11 @@ public enum HotkeyConfig: String, Codable, Sendable, CaseIterable, Identifiable 
         }
     }
 
-    public var keyCode: UInt16 {
+    /// Compact form for the floating pill and menu-bar rows.
+    public var shortLabel: String {
         switch self {
-        case .fn: return 0x3F // Fn key
-        case .rightOption: return 0x3D // Right Option
-        }
-    }
-
-    public var modifierFlags: CGEventFlags {
-        switch self {
-        case .fn: return []
-        case .rightOption: return .maskAlternate
+        case .fn: return "fn"
+        case .rightOption: return "⌥"
         }
     }
 }

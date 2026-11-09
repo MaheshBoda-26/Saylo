@@ -60,9 +60,11 @@ public struct TextPostProcessor: Sendable {
     private func applyPhoneticCorrections(_ text: String) -> String {
         guard !replacements.isEmpty else { return text }
 
-        // Build metaphone index from replacements
+        // Build metaphone index from replacements. Very short words produce
+        // coarse phonetic keys that match half the language, so they are left
+        // to the exact-match pass above.
         var metaphoneMap: [String: String] = [:]
-        for (from, to) in replacements {
+        for (from, to) in replacements where from.count >= 3 {
             let keys = DoubleMetaphone.encode(from.lowercased())
             for key in keys where !key.isEmpty {
                 metaphoneMap[key] = to
@@ -84,6 +86,8 @@ public struct TextPostProcessor: Sendable {
 
             // Only process word tokens (alphanumeric)
             if token.range(of: "\\w", options: .regularExpression) != nil {
+                // Short tokens share phonetic keys with far too many real words.
+                guard token.filter(\.isLetter).count >= 3 else { return }
                 let lower = token.lowercased()
                 let keys = DoubleMetaphone.encode(lower)
                 var replacement: String?
@@ -93,7 +97,8 @@ public struct TextPostProcessor: Sendable {
                         break
                     }
                 }
-                if let repl = replacement {
+                // Never rewrite a token onto itself; that only churns the string.
+                if let repl = replacement, repl.caseInsensitiveCompare(token) != .orderedSame {
                     // Preserve original casing
                     let finalRepl = token.first?.isUppercase == true ? repl.capitalized : repl
                     result += String(text[lastEnd..<tokenRange.lowerBound]) + finalRepl

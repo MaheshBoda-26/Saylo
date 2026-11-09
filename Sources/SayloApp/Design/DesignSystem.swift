@@ -45,37 +45,44 @@ public enum DesignSystem {
     /// `.custom(DesignSystem.Typography.*)` silently falls back to the system font.
     public static func registerBundledFonts() {
         for url in bundledFontURLs() {
-            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+            var error: Unmanaged<CFError>?
+            let registered = CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)
+            if !registered, let error {
+                // A failure here is silent by default: every custom font then
+                // falls back to the system face and the design collapses.
+                NSLog("Saylo: could not register font %@ — %@",
+                      url.lastPathComponent, String(describing: error.takeRetainedValue()))
+            }
         }
     }
 
-private static func bundledFontURLs() -> [URL] {
+    private static func bundledFontURLs() -> [URL] {
+        // Only a handful of places can hold the fonts. Enumerating the whole
+        // bundle (including nested frameworks) at launch was unnecessary I/O;
+        // this checks the known locations plus the SwiftPM resource bundle.
+        var directories: [URL] = []
+
         let sourceRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // Design
             .deletingLastPathComponent()   // SayloApp
             .appendingPathComponent("Resources", isDirectory: true)
+        directories.append(sourceRoot.appendingPathComponent("Fonts", isDirectory: true))
 
-        var roots: [URL] = [sourceRoot]
-        if let resourceURL = Bundle.main.resourceURL { roots.append(resourceURL) }
-        roots.append(Bundle.main.bundleURL)
+        if let resourceURL = Bundle.main.resourceURL {
+            directories.append(resourceURL.appendingPathComponent("Fonts", isDirectory: true))
+            directories.append(resourceURL.appendingPathComponent("Resources/Fonts", isDirectory: true))
+        }
+        directories.append(Bundle.main.bundleURL.appendingPathComponent("Fonts", isDirectory: true))
 
-        // SwiftPM nests the copied `Resources` directory differently between
-        // `swift run` and the assembled .app, so look for any `Fonts`
-        // directory a few levels below each root.
-        var directories: [URL] = []
-        for root in roots {
-            guard let enumerator = FileManager.default.enumerator(
-                at: root,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            ) else { continue }
-            for case let url as URL in enumerator {
-                if url.lastPathComponent == "Fonts" {
-                    directories.append(url)
-                    enumerator.skipDescendants()
-                } else if enumerator.level > 4 {
-                    enumerator.skipDescendants()
-                }
+        // `swift run` keeps copied resources in a sibling *.bundle.
+        if let bundles = try? FileManager.default.contentsOfDirectory(
+            at: Bundle.main.bundleURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) {
+            for bundle in bundles where bundle.pathExtension == "bundle" {
+                directories.append(bundle.appendingPathComponent("Contents/Resources/Fonts", isDirectory: true))
+                directories.append(bundle.appendingPathComponent("Contents/Resources/Resources/Fonts", isDirectory: true))
             }
         }
 
@@ -234,7 +241,10 @@ private static func bundledFontURLs() -> [URL] {
 private func colorFromHex(_ hex: String) -> SwiftUI.Color {
     let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
     var int: UInt64 = 0
-    Scanner(string: hex).scanHexInt64(&int)
+    guard Scanner(string: hex).scanHexInt64(&int) else {
+        assertionFailure("Malformed colour literal: \(hex)")
+        return SwiftUI.Color(.sRGB, red: 1, green: 0, blue: 1, opacity: 1)
+    }
     let a, r, g, b: UInt64
     switch hex.count {
     case 3: // RGB (12-bit)
@@ -244,7 +254,9 @@ private func colorFromHex(_ hex: String) -> SwiftUI.Color {
     case 8: // ARGB (32-bit)
         (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
     default:
-        (a, r, g, b) = (1, 1, 1, 0)
+        // Visible magenta beats an invisible view: a bad literal should be obvious.
+        assertionFailure("Malformed colour literal: \(hex)")
+        return SwiftUI.Color(.sRGB, red: 1, green: 0, blue: 1, opacity: 1)
     }
     return SwiftUI.Color(
         .sRGB,
@@ -600,53 +612,6 @@ public struct SayloHeroCard: View {
                         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.sm))
                 }
             }
-        }
-        .padding(.vertical, DesignSystem.Spacing.s6)
-        .padding(.horizontal, DesignSystem.Spacing.s6 + 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DesignSystem.Color.ink)
-        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.lg))
-    }
-}
-
-/// Serif-italic hero variant (Home headline treatment).
-public struct SayloSerifHeroCard: View {
-    let headline: String
-    let copy: String
-    let ctaTitle: String
-    let action: () -> Void
-
-    public init(headline: String, copy: String, ctaTitle: String, action: @escaping () -> Void) {
-        self.headline = headline
-        self.copy = copy
-        self.ctaTitle = ctaTitle
-        self.action = action
-    }
-
-    public var body: some View {
-        VStack(alignment: .leading, spacing: DesignSystem.Spacing.s3) {
-            VStack(alignment: .leading, spacing: DesignSystem.Spacing.s1) {
-                Text(headline)
-                    .font(DesignSystem.Typography.serif(DesignSystem.Typography.serifAccent))
-                    .italic()
-                    .foregroundStyle(DesignSystem.Color.surface)
-                Text(copy)
-                    .font(DesignSystem.Typography.sans(DesignSystem.Typography.sm))
-                    .foregroundStyle(DesignSystem.Color.heroSub)
-            }
-            Button(action: action) {
-                Text(ctaTitle)
-                    .font(DesignSystem.Typography.sans(
-                        DesignSystem.Typography.xs,
-                        weight: DesignSystem.Typography.weightSemibold
-                    ))
-                    .foregroundStyle(DesignSystem.Color.ink)
-                    .padding(.horizontal, DesignSystem.Spacing.s4)
-                    .padding(.vertical, DesignSystem.Spacing.s2)
-                    .background(DesignSystem.Color.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.sm))
-            }
-            .buttonStyle(.plain)
         }
         .padding(.vertical, DesignSystem.Spacing.s6)
         .padding(.horizontal, DesignSystem.Spacing.s6 + 4)

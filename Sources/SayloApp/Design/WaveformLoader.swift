@@ -67,26 +67,3 @@ public struct WaveformLoader: View {
         return minHeight + (maxHeight - minHeight) * CGFloat(eased)
     }
 }
-
-/// Swift parity for `demo.tsx` — centers the loader full-screen.
-public struct WaveformLoaderDemo: View {
-    public init() {}
-    public var body: some View {
-        VStack {
-            Spacer(minLength: 0)
-            HStack {
-                Spacer(minLength: 0)
-                WaveformLoader()
-                Spacer(minLength: 0)
-            }
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(DesignSystem.Color.ground)
-    }
-}
-
-#Preview {
-    WaveformLoaderDemo()
-        .frame(width: 400, height: 300)
-}

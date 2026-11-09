@@ -28,10 +28,6 @@
     <string>Copyright © 2024 Saylo. All rights reserved.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Saylo needs microphone access to capture your voice for dictation.</string>
-    <key>NSAccessibilityUsageDescription</key>
-    <string>Saylo needs accessibility access to detect global hotkeys and insert text at the cursor.</string>
-    <key>NSAppSleepDisabled</key>
-    <true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
     <key>LSApplicationCategoryType</key>

@@ -7,15 +7,18 @@ struct SayloApp: App {
     // Core services
     // NOTE: audioRecorder / whistleEngine / textInserter are owned by
     // DictationController — do not also hold StateObject copies here.
-    @StateObject private var jsonStore = JSONStore()
+    // JSONStore and HotkeyMonitor are deliberately absent too: they are
+    // retained by the stores and the coordinator below, and a second
+    // StateObject copy would only create a second, unused instance.
     @StateObject private var dictionaryStore: DictionaryStore
     @StateObject private var historyStore: HistoryStore
-    @StateObject private var preferencesStore = PreferencesStore()
-    @StateObject private var permissionsManager = PermissionsManager()
+    @StateObject private var preferencesStore: PreferencesStore
+    @StateObject private var permissionsManager: PermissionsManager
     @StateObject private var dictationController: DictationController
-    @StateObject private var hotkeyMonitor = HotkeyMonitor()
 
     /// Closes the hotkey → dictation → floating-pill loop.
+    /// Retained by this struct (SwiftUI creates the App once) and owns the
+    /// HotkeyMonitor.
     private let hotkeyCoordinator: DictationHotkeyCoordinator
 
     init() {
@@ -24,53 +27,72 @@ struct SayloApp: App {
         // silently falls back to the system face.
         DesignSystem.registerBundledFonts()
 
-        // Initialize WhistleEngine with bundled model
-        let modelURL = Bundle.main.url(forResource: "whistle", withExtension: "cact") ??
-                      URL(fileURLWithPath: "vendor/whistle.cact")
-        do {
-            let engine = try WhistleEngine(modelURL: modelURL)
+        // Initialize stores (single shared instances)
+        let jStore = JSONStore()
+        let dictStore = DictionaryStore(jsonStore: jStore)
+        let histStore = HistoryStore(jsonStore: jStore)
+        let pStore = PreferencesStore()
+        let perms = PermissionsManager()
+        let monitor = HotkeyMonitor()
 
-            // Initialize stores (single shared instances)
-            let jStore = JSONStore()
-            let dictStore = DictionaryStore(jsonStore: jStore)
-            let histStore = HistoryStore(jsonStore: jStore)
-            let pStore = PreferencesStore()
-            let perms = PermissionsManager()
-            let monitor = HotkeyMonitor()
+        // A missing or unreadable model used to terminate the app with no
+        // window and no explanation. Keep the UI alive and report it instead.
+        let engine: WhistleEngine?
+        let startupError: String?
+        if let modelURL = Self.locateModel() {
+            do {
+                engine = try WhistleEngine(modelURL: modelURL)
+                startupError = nil
+            } catch {
+                engine = nil
+                startupError = "The speech model could not be loaded: \(error.localizedDescription)"
+            }
+        } else {
+            engine = nil
+            startupError = "The speech model (whistle.cact) is missing from the app bundle."
+        }
 
-            // Initialize dictation controller
-            let dController = DictationController(
-                audioRecorder: AudioRecorder(),
-                whistleEngine: engine,
-                textInserter: TextInserter(),
-                dictionaryStore: dictStore,
-                historyStore: histStore,
-                preferencesStore: pStore
-            )
+        // Initialize dictation controller
+        let dController = DictationController(
+            audioRecorder: AudioRecorder(),
+            whistleEngine: engine,
+            textInserter: TextInserter(),
+            dictionaryStore: dictStore,
+            historyStore: histStore,
+            preferencesStore: pStore,
+            startupError: startupError
+        )
 
-            self._jsonStore = StateObject(wrappedValue: jStore)
-            self._dictionaryStore = StateObject(wrappedValue: dictStore)
-            self._historyStore = StateObject(wrappedValue: histStore)
-            self._preferencesStore = StateObject(wrappedValue: pStore)
-            self._permissionsManager = StateObject(wrappedValue: perms)
-            self._hotkeyMonitor = StateObject(wrappedValue: monitor)
-            self._dictationController = StateObject(wrappedValue: dController)
+        self._dictionaryStore = StateObject(wrappedValue: dictStore)
+        self._historyStore = StateObject(wrappedValue: histStore)
+        self._preferencesStore = StateObject(wrappedValue: pStore)
+        self._permissionsManager = StateObject(wrappedValue: perms)
+        self._dictationController = StateObject(wrappedValue: dController)
 
-            self.hotkeyCoordinator = DictationHotkeyCoordinator(
-                dictationController: dController,
-                preferencesStore: pStore,
-                permissionsManager: perms,
-                hotkeyMonitor: monitor
-            )
+        self.hotkeyCoordinator = DictationHotkeyCoordinator(
+            dictationController: dController,
+            preferencesStore: pStore,
+            permissionsManager: perms,
+            hotkeyMonitor: monitor
+        )
 
-            // Warm up the engine
+        // Warm up the engine
+        if let engine {
             Task {
                 try? await engine.warmUp()
             }
-
-        } catch {
-            fatalError("Failed to initialize Saylo: \(error)")
         }
+    }
+
+    /// Bundle first: a Finder-launched `.app` has `/` as its working directory,
+    /// so the relative path only helps `swift run` from the package root.
+    private static func locateModel() -> URL? {
+        if let bundled = Bundle.main.url(forResource: "whistle", withExtension: "cact") {
+            return bundled
+        }
+        let local = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("vendor/whistle.cact")
+        return FileManager.default.fileExists(atPath: local.path) ? local : nil
     }
 
     var body: some Scene {
@@ -83,7 +105,7 @@ struct SayloApp: App {
                 .environmentObject(preferencesStore)
                 .environmentObject(permissionsManager)
                 .task {
-                    await hotkeyCoordinator.activate()
+                    hotkeyCoordinator.activate()
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -96,17 +118,6 @@ struct SayloApp: App {
             )
         }
 
-        // Settings window (Cmd+,)
-        WindowGroup("Settings", id: "settings") {
-            SettingsWindow()
-                .environmentObject(preferencesStore)
-                .environmentObject(historyStore)
-                .environmentObject(dictionaryStore)
-                .environmentObject(permissionsManager)
-        }
-        .windowResizability(.contentSize)
-        .defaultSize(width: 700, height: 550)
-
         // Dictionary window
         WindowGroup("Dictionary", id: "dictionary") {
             DictionaryWindow()
@@ -115,15 +126,20 @@ struct SayloApp: App {
         .windowResizability(.contentSize)
         .defaultSize(width: 600, height: 500)
 
-        // Menu bar extra
-        MenuBarExtra {
+        // Menu bar extra — `isInserted` removes the item from the menu bar
+        // entirely when the user turns it off, rather than leaving a blank slot.
+        MenuBarExtra(isInserted: Binding(
+            get: { preferencesStore.showMenuBarIcon },
+            set: { preferencesStore.showMenuBarIcon = $0 }
+        )) {
             MenuBarView()
                 .environmentObject(dictationController)
                 .environmentObject(preferencesStore)
                 .environmentObject(historyStore)
                 .environmentObject(dictionaryStore)
+                .environmentObject(permissionsManager)
         } label: {
-            Image(systemName: preferencesStore.showMenuBarIcon ? "waveform" : "")
+            Image(systemName: "waveform")
                 .symbolRenderingMode(.monochrome)
                 .foregroundStyle(
                     dictationController.state == .recording ? DesignSystem.Color.danger :
@@ -142,7 +158,6 @@ struct AppCommands: Commands {
     // Scene's content, so these are injected explicitly by SayloApp.body.
     let dictationController: DictationController
     let preferencesStore: PreferencesStore
-    @FocusedValue(\.selectedEntry) private var selectedEntry: DictationEntry?
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {}
@@ -153,13 +168,6 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut("n", modifiers: [.command, .shift])
             .disabled(dictationController.state.isActive)
-        }
-
-        CommandGroup(before: .sidebar) {
-            Button("Show History") {
-                // Focus main window
-            }
-            .keyboardShortcut("1", modifiers: [.command])
         }
 
         CommandGroup(after: .sidebar) {
@@ -197,17 +205,3 @@ struct AppCommands: Commands {
         }
     }
 }
-
-// MARK: - Focused Values
-
-private struct SelectedEntryKey: FocusedValueKey {
-    typealias Value = DictationEntry
-}
-
-extension FocusedValues {
-    var selectedEntry: DictationEntry? {
-        get { self[SelectedEntryKey.self] }
-        set { self[SelectedEntryKey.self] = newValue }
-    }
-}
-

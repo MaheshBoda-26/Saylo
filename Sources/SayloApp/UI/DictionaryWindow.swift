@@ -87,13 +87,7 @@ public struct DictionaryContentView: View {
                     }
                 }
                 Spacer(minLength: 0)
-                HStack(spacing: DesignSystem.Spacing.s3) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: DesignSystem.Typography.sm))
-                        .foregroundStyle(DesignSystem.Color.muted)
-                    Image(systemName: "arrow.up.arrow.down")
-                        .font(.system(size: DesignSystem.Typography.sm))
-                        .foregroundStyle(DesignSystem.Color.muted)
+                if !searchText.isEmpty {
                     Button { searchText = "" } label: {
                         Image(systemName: "arrow.clockwise")
                             .font(.system(size: DesignSystem.Typography.sm))
@@ -149,7 +143,6 @@ public struct DictionaryContentView: View {
                         ForEach(filtered) { entry in
                             PaperDictionaryRow(
                                 entry: entry,
-                                isUserName: isUserName(entry),
                                 onEdit: { editingEntry = entry },
                                 onDelete: { dictionaryStore.deleteEntry(entry) }
                             )
@@ -165,35 +158,36 @@ public struct DictionaryContentView: View {
         .tint(DesignSystem.Color.accent)
         .sheet(isPresented: $showingAddSheet) {
             AddEditEntrySheet(entry: nil, initialType: .word) { phrase, replacement, type in
-                dictionaryStore.addEntry(phrase: phrase, replacement: replacement, type: type)
+                do {
+                    try dictionaryStore.addEntry(phrase: phrase, replacement: replacement, type: type)
+                    return nil
+                } catch {
+                    return error.localizedDescription
+                }
             }
             .environmentObject(dictionaryStore)
         }
         .sheet(item: $editingEntry) { entry in
             AddEditEntrySheet(entry: entry, initialType: entry.type) { phrase, replacement, type in
-                dictionaryStore.updateEntry(entry, phrase: phrase, replacement: replacement)
-                if entry.type != type {
-                    dictionaryStore.deleteEntry(entry)
-                    dictionaryStore.addEntry(phrase: phrase, replacement: replacement, type: type)
-                }
+                dictionaryStore.updateEntry(
+                    entry,
+                    phrase: phrase,
+                    replacement: replacement.map { .set($0) } ?? .clear,
+                    type: type
+                )
+                return nil
             }
             .environmentObject(dictionaryStore)
         }
     }
 
     private var quickChips: [String] {
-        let names = dictionaryStore.entries.prefix(5).map(\.phrase)
-        if names.isEmpty { return ["Saylo", "Cactus Compute", "Mahesh", "Kubernetes", "PyTorch"] }
-        return Array(names)
+        Array(dictionaryStore.entries.prefix(5).map(\.phrase))
     }
 
     private func isTechnical(_ entry: DictionaryEntry) -> Bool {
         // Technical = Whistle-bias keywords: multi-word or camel/capitalized terms
         entry.phrase.contains(" ") || entry.phrase.contains(where: { $0.isUppercase })
-    }
-
-    private func isUserName(_ entry: DictionaryEntry) -> Bool {
-        entry.phrase.lowercased() == "mahesh"
     }
 }
 
@@ -211,11 +205,10 @@ private enum DictionaryTab: String, CaseIterable, Identifiable {
 
 // MARK: - Paper dictionary row
 
-/// Dictionary row: 15pt phrase + accent sparkle left,
-/// mono "biasing weight X.X" right (deterministic from phrase hash).
+/// Dictionary row: phrase on the left, its replacement on the right, with
+/// edit/delete actions on every row.
 private struct PaperDictionaryRow: View {
     let entry: DictionaryEntry
-    var isUserName = false
     let onEdit: () -> Void
     let onDelete: () -> Void
 
@@ -223,51 +216,49 @@ private struct PaperDictionaryRow: View {
         HStack {
             HStack(spacing: DesignSystem.Spacing.s2) {
                 Text(entry.phrase)
-                    .font(DesignSystem.Typography.sans(
-                        DesignSystem.Typography.base,
-                        weight: isUserName ? DesignSystem.Typography.weightSemibold : DesignSystem.Typography.weightRegular
-                    ))
+                    .font(DesignSystem.Typography.sans(DesignSystem.Typography.base))
                     .foregroundStyle(DesignSystem.Color.ink)
-                if isUserName {
-                    Text("User Name")
+                if !entry.isEnabled {
+                    Text("Off")
                         .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
-                        .foregroundStyle(DesignSystem.Color.accent)
+                        .foregroundStyle(DesignSystem.Color.muted)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1)
-                        .background(DesignSystem.Color.accentSoft)
+                        .background(DesignSystem.Color.track)
                         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.sm))
-                } else {
-                    Text("✦")
-                        .font(.system(size: DesignSystem.Typography.xs))
-                        .foregroundStyle(DesignSystem.Color.accent.opacity(0.7))
                 }
+                Text("✦")
+                    .font(.system(size: DesignSystem.Typography.xs))
+                    .foregroundStyle(DesignSystem.Color.accent.opacity(0.7))
             }
             Spacer(minLength: 0)
-            if isUserName {
-                HStack(spacing: DesignSystem.Spacing.s3) {
-                    Button(action: onEdit) {
-                        Image(systemName: "pencil")
-                            .font(.system(size: DesignSystem.Typography.sm))
-                            .foregroundStyle(DesignSystem.Color.muted)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Edit \(entry.phrase)")
-                    Button(action: onDelete) {
-                        Image(systemName: "trash")
-                            .font(.system(size: DesignSystem.Typography.sm))
-                            .foregroundStyle(DesignSystem.Color.muted)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Delete \(entry.phrase)")
-                    Image(systemName: "star")
-                        .font(.system(size: DesignSystem.Typography.sm))
-                        .foregroundStyle(DesignSystem.Color.muted)
-                }
+            if let replacement = entry.replacement {
+                Text(replacement)
+                    .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
+                    .foregroundStyle(DesignSystem.Color.muted)
+                    .lineLimit(1)
             } else {
-                Text("biasing weight \(biasWeight, specifier: "%.1f")")
+                Text("biasing keyword")
                     .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                     .foregroundStyle(DesignSystem.Color.muted)
             }
+            HStack(spacing: DesignSystem.Spacing.s3) {
+                Button(action: onEdit) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: DesignSystem.Typography.sm))
+                        .foregroundStyle(DesignSystem.Color.muted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Edit \(entry.phrase)")
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: DesignSystem.Typography.sm))
+                        .foregroundStyle(DesignSystem.Color.muted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Delete \(entry.phrase)")
+            }
+            .padding(.leading, DesignSystem.Spacing.s4)
         }
         .padding(.vertical, DesignSystem.Spacing.s3)
         .padding(.horizontal, DesignSystem.Spacing.s1)
@@ -280,12 +271,6 @@ private struct PaperDictionaryRow: View {
             Button("Delete", role: .destructive) { onDelete() }
         }
     }
-
-    /// Deterministic 1.1–1.6 weight so rows match Paper's look.
-    private var biasWeight: Double {
-        let sum = entry.phrase.unicodeScalars.reduce(0) { $0 + Int($1.value) }
-        return 1.1 + Double(sum % 6) / 10.0
-    }
 }
 
 // MARK: - Add/Edit Entry Sheet
@@ -296,23 +281,24 @@ private struct AddEditEntrySheet: View {
 
     let entry: DictionaryEntry?
     let initialType: DictionaryEntryType
-    let onSave: (String, String?, DictionaryEntryType) -> Void
+    /// Returns an error message to display, or `nil` when the save succeeded.
+    let onSave: (String, String?, DictionaryEntryType) -> String?
 
     @State private var phrase = ""
     @State private var replacement = ""
     @State private var type: DictionaryEntryType
     @State private var warnings: [String] = []
+    @State private var saveError: String?
 
-    init(entry: DictionaryEntry?, initialType: DictionaryEntryType, onSave: @escaping (String, String?, DictionaryEntryType) -> Void) {
+    init(entry: DictionaryEntry?,
+         initialType: DictionaryEntryType,
+         onSave: @escaping (String, String?, DictionaryEntryType) -> String?) {
         self.entry = entry
         self.initialType = initialType
         self.onSave = onSave
-        self._type = State(initialValue: initialType)
-        if let entry {
-            _phrase = State(initialValue: entry.phrase)
-            _replacement = State(initialValue: entry.replacement ?? "")
-            _type = State(initialValue: entry.type)
-        }
+        self._type = State(initialValue: entry?.type ?? initialType)
+        self._phrase = State(initialValue: entry?.phrase ?? "")
+        self._replacement = State(initialValue: entry?.replacement ?? "")
     }
 
     var body: some View {
@@ -341,6 +327,14 @@ private struct AddEditEntrySheet: View {
                     }
                 }
 
+                if let saveError {
+                    Section("Could not save") {
+                        Text(saveError)
+                            .font(DesignSystem.Typography.sans(DesignSystem.Typography.sm))
+                            .foregroundStyle(DesignSystem.Color.danger)
+                    }
+                }
+
                 if !warnings.isEmpty {
                     Section("Warnings") {
                         ForEach(warnings, id: \.self) { warning in
@@ -365,11 +359,16 @@ private struct AddEditEntrySheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        onSave(phrase, type == .correction && !replacement.isEmpty ? replacement : nil, type)
-                        dismiss()
+                        let value = type == .correction
+                            ? replacement.trimmingCharacters(in: .whitespacesAndNewlines)
+                            : nil
+                        if let error = onSave(phrase, value, type) {
+                            saveError = error
+                        } else {
+                            dismiss()
+                        }
                     }
-                    .disabled(phrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                        (type == .correction && replacement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                    .disabled(!canSave)
                 }
             }
             .onChange(of: phrase) { _, _ in validate() }
@@ -379,11 +378,22 @@ private struct AddEditEntrySheet: View {
         }
     }
 
+    private var canSave: Bool {
+        let trimmedPhrase = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPhrase.isEmpty else { return false }
+        if type == .correction {
+            return !replacement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return true
+    }
+
     private func validate() {
         let trimmedPhrase = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedReplacement = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPhrase.isEmpty else { warnings = []; return }
-        let replacementForValidation = type == .correction && !trimmedReplacement.isEmpty ? trimmedReplacement : nil
+        let replacementForValidation = type == .correction && !trimmedReplacement.isEmpty
+            ? trimmedReplacement
+            : nil
         warnings = dictionaryStore.validateEntry(phrase: trimmedPhrase, replacement: replacementForValidation)
     }
 }

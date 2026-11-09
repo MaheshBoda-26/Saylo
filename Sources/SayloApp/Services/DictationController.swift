@@ -1,5 +1,5 @@
-import Foundation
 import AppKit
+import Foundation
 import SayloCore
 import os.log
 
@@ -10,7 +10,9 @@ public final class DictationController: ObservableObject {
 
     // Dependencies
     private let audioRecorder: AudioRecorder
-    private let whistleEngine: WhistleEngine
+    /// `nil` when the speech model could not be loaded at launch. The app still
+    /// runs — the UI reports the problem instead of terminating.
+    private let whistleEngine: WhistleEngine?
     private let textInserter: TextInserter
     private let dictionaryStore: DictionaryStore
     private let historyStore: HistoryStore
@@ -21,6 +23,8 @@ public final class DictationController: ObservableObject {
     @Published public private(set) var audioLevel: Float = 0
     @Published public private(set) var recordingDuration: TimeInterval = 0
     @Published public private(set) var lastError: String?
+    /// Non-nil when the app started without a usable speech engine.
+    @Published public private(set) var startupError: String?
 
     // Timer for updating duration
     private var durationTimer: Timer?
@@ -28,6 +32,10 @@ public final class DictationController: ObservableObject {
 
     // Audio recording
     private var currentRecording: [Float] = []
+
+    /// The app that was frontmost when dictation started. Used to return focus
+    /// to it when re-inserting a past dictation from Saylo's own window.
+    private var lastTargetApp: NSRunningApplication?
 
     // State machine
     public enum DictationState: Equatable, Sendable {
@@ -57,11 +65,12 @@ public final class DictationController: ObservableObject {
 
     public init(
         audioRecorder: AudioRecorder,
-        whistleEngine: WhistleEngine,
+        whistleEngine: WhistleEngine?,
         textInserter: TextInserter,
         dictionaryStore: DictionaryStore,
         historyStore: HistoryStore,
-        preferencesStore: PreferencesStore
+        preferencesStore: PreferencesStore,
+        startupError: String? = nil
     ) {
         self.audioRecorder = audioRecorder
         self.whistleEngine = whistleEngine
@@ -69,6 +78,7 @@ public final class DictationController: ObservableObject {
         self.dictionaryStore = dictionaryStore
         self.historyStore = historyStore
         self.preferencesStore = preferencesStore
+        self.startupError = startupError
     }
 
     // MARK: - Public Actions
@@ -83,6 +93,8 @@ public final class DictationController: ObservableObject {
             recordingStartTime = Date()
             state = .recording
             startDurationTimer()
+            rememberTargetApp()
+            playCue("Tink")
             logger.info("Started recording")
         } catch {
             handleError(error)
@@ -108,6 +120,7 @@ public final class DictationController: ObservableObject {
             return
         }
 
+        playCue("Pop")
         state = .transcribing
         Task {
             await transcribeAndInsert()
@@ -117,6 +130,7 @@ public final class DictationController: ObservableObject {
     public func cancelRecording() {
         guard state == .recording else { return }
         _ = audioRecorder.stop()
+        currentRecording.removeAll()
         stopDurationTimer()
         state = .idle
         logger.info("Recording cancelled")
@@ -132,8 +146,22 @@ public final class DictationController: ObservableObject {
     public func reinsert(_ text: String) async {
         guard !text.isEmpty else { return }
         state = .inserting
-        await textInserter.insert(text)
-        state = .idle
+
+        // The user clicked a row inside Saylo, so Saylo is frontmost. Hand focus
+        // back to the app they were dictating into before sending ⌘V.
+        if let target = lastTargetApp,
+           target.bundleIdentifier != Bundle.main.bundleIdentifier,
+           !target.isTerminated {
+            target.activate()
+            try? await Task.sleep(nanoseconds: 150_000_000)
+        }
+
+        let inserted = await textInserter.insert(text)
+        if inserted {
+            state = .idle
+        } else {
+            handleError(DictationError.insertionFailed)
+        }
     }
 
     public func toggleHandsFree() {
@@ -154,6 +182,10 @@ public final class DictationController: ObservableObject {
 
     private func transcribeAndInsert() async {
         do {
+            guard let whistleEngine else {
+                throw WhistleError.modelNotFound("the speech model is unavailable")
+            }
+
             // Get keywords for biasing
             let keywords = dictionaryStore.getKeywordsForBiasing()
 
@@ -162,6 +194,11 @@ public final class DictationController: ObservableObject {
                 let lang = preferencesStore.selectedLanguage
                 return lang == .auto ? nil : lang.rawValue
             }()
+
+            // Capture the destination once: after the paste the frontmost app may
+            // have changed, and the history entry should describe where the text
+            // actually went.
+            let appBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
 
             // Transcribe
             let transcript = try await whistleEngine.transcribe(
@@ -174,9 +211,8 @@ public final class DictationController: ObservableObject {
             let processedText = dictionaryStore.applyCorrections(to: transcript.text)
 
             // Apply text post-processor (capitalization, punctuation, phonetic corrections, context-aware formatting)
-            let appBundleID = getFrontmostAppBundleID()
             let postProcessor = TextPostProcessor(
-                replacements: dictionaryStore.correctionPairs.reduce(into: [:]) { $0[$1.pattern] = $1.replacement },
+                replacements: dictionaryStore.phraseReplacements,
                 removingFillers: true,
                 appBundleID: appBundleID
             )
@@ -193,27 +229,33 @@ public final class DictationController: ObservableObject {
 
             // Insert text
             state = .inserting
-            await textInserter.insert(finalText)
+            let inserted = await textInserter.insert(finalText)
+            guard inserted else {
+                throw DictationError.insertionFailed
+            }
 
             // Save to history
-            let entry = DictationEntry(
-                text: finalText,
-                rawText: transcript.text,
-                language: transcript.language,
-                durationSec: recordingDuration,
-                appBundleID: getFrontmostAppBundleID(),
-                correctionsApplied: processedText.corrections
-            )
-            historyStore.addEntry(entry)
+            if preferencesStore.storeHistory {
+                let entry = DictationEntry(
+                    text: finalText,
+                    rawText: transcript.text,
+                    language: transcript.language,
+                    durationSec: recordingDuration,
+                    appBundleID: appBundleID,
+                    correctionsApplied: processedText.corrections
+                )
+                historyStore.addEntry(entry, limit: preferencesStore.effectiveHistoryLimit)
+            }
 
             state = .idle
             logger.info("Dictation completed: \(finalText)")
 
         } catch {
-            await MainActor.run {
-                handleError(error)
-            }
+            handleError(error)
         }
+
+        // The samples are no longer needed once the clip has been transcribed.
+        currentRecording.removeAll(keepingCapacity: false)
     }
 
     private func handleError(_ error: Error) {
@@ -232,12 +274,42 @@ public final class DictationController: ObservableObject {
 
     // MARK: - Helpers
 
+    private enum DictationError: LocalizedError {
+        case insertionFailed
+
+        var errorDescription: String? {
+            switch self {
+            case .insertionFailed:
+                return "Could not insert text. Check Accessibility permission."
+            }
+        }
+    }
+
+    private func rememberTargetApp() {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return }
+        guard app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
+        lastTargetApp = app
+    }
+
+    private func playCue(_ name: String) {
+        guard preferencesStore.playSounds else { return }
+        NSSound(named: NSSound.Name(name))?.play()
+    }
+
     private func startDurationTimer() {
+        guard let start = recordingStartTime else { return }
         durationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self, let start = self.recordingStartTime else { return }
             Task { @MainActor in
+                guard let self else { return }
                 self.recordingDuration = Date().timeIntervalSince(start)
                 self.audioLevel = self.audioRecorder.level
+
+                // A hands-free session left running would otherwise record until
+                // the buffer cap, so stop cleanly when the cap is reached.
+                if self.audioRecorder.reachedLimit, self.state == .recording {
+                    self.logger.info("Capture limit reached, stopping")
+                    self.stopRecording()
+                }
             }
         }
     }
@@ -245,9 +317,5 @@ public final class DictationController: ObservableObject {
     private func stopDurationTimer() {
         durationTimer?.invalidate()
         durationTimer = nil
-    }
-
-    private func getFrontmostAppBundleID() -> String? {
-        NSWorkspace.shared.frontmostApplication?.bundleIdentifier
     }
 }

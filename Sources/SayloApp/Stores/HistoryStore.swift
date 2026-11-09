@@ -1,5 +1,5 @@
-import Foundation
 import AppKit
+import Foundation
 import os.log
 
 /// Manages dictation history with JSON file persistence.
@@ -10,15 +10,15 @@ public final class HistoryStore: ObservableObject {
 
     @Published public private(set) var entries: [DictationEntry] = []
     @Published public var searchQuery: String = ""
-    @Published public var selectedEntry: DictationEntry?
 
     public init(jsonStore: JSONStore) {
         self.jsonStore = jsonStore
         self.entries = jsonStore.historyEntries
     }
 
-    public func addEntry(_ entry: DictationEntry) {
-        jsonStore.addHistoryEntry(entry)
+    /// - Parameter limit: the user's `maxHistoryItems` preference.
+    public func addEntry(_ entry: DictationEntry, limit: Int = 1000) {
+        jsonStore.addHistoryEntry(entry, limit: limit)
         entries = jsonStore.historyEntries
     }
 
@@ -45,9 +45,5 @@ public final class HistoryStore: ObservableObject {
     public func copyText(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-    }
-
-    public func getEntryCount() -> Int {
-        return entries.count
     }
 }

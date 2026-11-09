@@ -16,15 +16,15 @@ let keywords = ["Saylo"]
 let post = TextPostProcessor(replacements: ["salo": "Saylo"])
 
 func report(_ pcm: [Float], engine: WhistleEngine, gated: Bool = false) async throws {
+    if gated {
+        print("(silence — below the speech threshold, model not run)")
+        return
+    }
     let t0 = Date()
     let t = try await engine.transcribe(pcm, language: language, keywords: keywords)
     let totalMs = Date().timeIntervalSince(t0) * 1000
     let secs = Double(pcm.count) / 16_000
     let text = post.process(t.text)
-    if gated {
-        print("(silence — below the speech threshold, model not run)")
-        return
-    }
     print(text.isEmpty ? "(silence)" : "“\(text)”")
     print(String(format: "  [%@ · audio %.1fs · ttft %.0f ms · total %.0f ms]",
                  t.language.isEmpty ? "-" : t.language, secs, t.ttftMs, totalMs))

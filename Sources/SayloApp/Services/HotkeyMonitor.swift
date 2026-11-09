@@ -3,7 +3,11 @@ import Carbon
 import os.log
 
 /// Monitors global hotkey events using CGEventTap.
-/// Supports Fn key (hold) and Right Option (hold) with double-tap for hands-free mode.
+///
+/// Both supported hotkeys — Fn and Right Option — are modifier keys, and macOS
+/// reports modifier transitions as `.flagsChanged`, never as `.keyDown`/`.keyUp`.
+/// The tap therefore listens for flags changes only; handling Right Option in the
+/// key-down path (as the first version did) meant it could never fire.
 public final class HotkeyMonitor: ObservableObject {
     private let logger = Logger(subsystem: "com.saylo", category: "HotkeyMonitor")
 
@@ -24,8 +28,8 @@ public final class HotkeyMonitor: ObservableObject {
     private var lastKeyDownTime: CFAbsoluteTime = 0
     private let doubleTapThreshold: CFAbsoluteTime = 0.3
 
-    // Fn key tracking (it's a modifier flag change, not a regular key)
-    private var fnWasPressed = false
+    /// Tracks the pressed state of the *active* hotkey, whichever it is.
+    private var keyWasPressed = false
 
     private let lock = NSLock()
 
@@ -48,18 +52,17 @@ public final class HotkeyMonitor: ObservableObject {
 
         self.hotkeyConfig = config
         self.handsFreeEnabled = handsFree
-
-        let eventMask = (1 << CGEventType.flagsChanged.rawValue) |
-                        (1 << CGEventType.keyDown.rawValue) |
-                        (1 << CGEventType.keyUp.rawValue)
+        self.keyWasPressed = false
+        self.lastKeyDownTime = 0
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
-            eventsOfInterest: CGEventMask(eventMask),
+            eventsOfInterest: CGEventMask(1 << CGEventType.flagsChanged.rawValue),
             callback: { (_, type, event, refcon) -> Unmanaged<CGEvent>? in
-                let monitor = Unmanaged<HotkeyMonitor>.fromOpaque(refcon!).takeUnretainedValue()
+                guard let refcon else { return Unmanaged.passUnretained(event) }
+                let monitor = Unmanaged<HotkeyMonitor>.fromOpaque(refcon).takeUnretainedValue()
                 return monitor.handleEvent(type: type, event: event)
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
@@ -83,69 +86,80 @@ public final class HotkeyMonitor: ObservableObject {
 
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+            if let runLoopSource {
+                CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+            }
             eventTap = nil
             runLoopSource = nil
+            keyWasPressed = false
             logger.info("Hotkey monitor stopped")
         }
     }
 
+    /// Applies a new hotkey configuration. Restarts the tap only when one is running.
     public func updateConfig(_ config: HotkeyConfig, handsFree: Bool) {
         lock.lock()
         let wasRunning = eventTap != nil
+        let unchanged = hotkeyConfig == config && handsFreeEnabled == handsFree
         lock.unlock()
 
-        if wasRunning { stop() }
+        guard wasRunning, !unchanged else { return }
+        stop()
         start(config: config, handsFree: handsFree)
     }
 
     private func handleEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        let flags = event.flags
-
         switch type {
         case .flagsChanged:
-            // Fn key is detected as a flags change
-            let fnPressed = flags.contains(.maskSecondaryFn)
-
+            handleFlagsChanged(event)
+        case .tapDisabledByTimeout, .tapDisabledByUserInput:
+            // The system disables a tap whose callback is too slow. Re-arm it so
+            // the hotkey keeps working for the rest of the session.
             lock.lock()
-            let config = hotkeyConfig
-            let wasPressed = fnWasPressed
-            fnWasPressed = fnPressed
+            let tap = eventTap
             lock.unlock()
-
-            if fnPressed != wasPressed {
-                if config == .fn {
-                    if fnPressed {
-                        handleKeyDown()
-                    } else {
-                        handleKeyUp()
-                    }
-                }
+            if let tap {
+                logger.info("Event tap was disabled by the system — re-enabling")
+                CGEvent.tapEnable(tap: tap, enable: true)
             }
-
-        case .keyDown:
-            lock.lock()
-            let config = hotkeyConfig
-            lock.unlock()
-
-            if config == .rightOption && flags.contains(.maskAlternate) && event.getIntegerValueField(.keyboardEventKeycode) == 0x3D {
-                handleKeyDown()
-            }
-
-        case .keyUp:
-            lock.lock()
-            let config = hotkeyConfig
-            lock.unlock()
-
-            if config == .rightOption && !flags.contains(.maskAlternate) && event.getIntegerValueField(.keyboardEventKeycode) == 0x3D {
-                handleKeyUp()
-            }
-
         default:
             break
         }
 
-        return Unmanaged.passRetained(event)
+        // Hand the event back unretained: the system owns it for the duration of
+        // the callback. `passRetained` would add an unbalanced +1 per event.
+        return Unmanaged.passUnretained(event)
+    }
+
+    private func handleFlagsChanged(_ event: CGEvent) {
+        lock.lock()
+        let config = hotkeyConfig
+        lock.unlock()
+
+        let flags = event.flags
+        let pressed: Bool
+
+        switch config {
+        case .fn:
+            pressed = flags.contains(.maskSecondaryFn)
+        case .rightOption:
+            // Right Option is keycode 0x3D; left Option must not trigger.
+            guard event.getIntegerValueField(.keyboardEventKeycode) == 0x3D else { return }
+            pressed = flags.contains(.maskAlternate)
+        }
+
+        lock.lock()
+        let wasPressed = keyWasPressed
+        keyWasPressed = pressed
+        lock.unlock()
+
+        guard pressed != wasPressed else { return }
+
+        if pressed {
+            handleKeyDown()
+        } else {
+            handleKeyUp()
+        }
     }
 
     private func handleKeyDown() {
@@ -156,9 +170,8 @@ public final class HotkeyMonitor: ObservableObject {
         lock.unlock()
 
         let now = CFAbsoluteTimeGetCurrent()
-        let timeSinceLast = now - lastTime
 
-        if handsFree && timeSinceLast < threshold {
+        if handsFree && lastTime > 0 && now - lastTime < threshold {
             // Double-tap detected
             lock.lock()
             lastKeyDownTime = 0 // Prevent triple-tap
@@ -178,16 +191,5 @@ public final class HotkeyMonitor: ObservableObject {
 
     deinit {
         stop()
-    }
-}
-
-// MARK: - HotkeyConfig Extension for Display
-
-extension HotkeyConfig {
-    var keyEquivalent: String {
-        switch self {
-        case .fn: return "⌘" // Placeholder - Fn doesn't have a standard symbol
-        case .rightOption: return "⌥"
-        }
     }
 }

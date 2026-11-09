@@ -5,17 +5,24 @@ import os.log
 
 /// Owns the global-hotkey → dictation → floating-pill loop.
 ///
-/// Previously nothing called `HotkeyMonitor.start` and nothing owned a
-/// `FloatingPillPanel`, so pressing the hotkey did nothing and no pill
-/// ever appeared. This coordinator closes that loop:
-///
 /// - starts (and restarts) the event tap with the current preferences
 /// - gates recording on microphone permission (prompting on first press)
 /// - shows/updates/hides the floating pill from dictation state
 /// - keeps the tap alive across app-activate and preference changes
+///
+/// ## Hold-to-talk vs hands-free
+///
+/// A double-tap is two press/release pairs. If the first release stopped the
+/// recording immediately, the second press would always arrive during
+/// transcription and hands-free could never engage. The stop is therefore
+/// deferred by the double-tap window when hands-free is enabled; a second press
+/// inside that window cancels it and latches the session instead.
 @MainActor
 final class DictationHotkeyCoordinator {
     private let logger = Logger(subsystem: "com.saylo", category: "DictationHotkeyCoordinator")
+
+    /// Must be at least `HotkeyMonitor`'s double-tap threshold.
+    private static let stopDeferral: TimeInterval = 0.32
 
     private let dictationController: DictationController
     private let preferencesStore: PreferencesStore
@@ -27,6 +34,15 @@ final class DictationHotkeyCoordinator {
     private var meterTimer: Timer?
     private var hideWorkItem: DispatchWorkItem?
     private var activated = false
+
+    // Hands-free state machine
+    private var pendingStop: DispatchWorkItem?
+    private var handsFreeLatched = false
+    private var suppressNextKeyUp = false
+    private var isStarting = false
+    /// A latched stop blocks new starts for one double-tap window, so the
+    /// release of the stop tap cannot be mistaken for the start of a new one.
+    private var startBlockedUntil = Date.distantPast
 
     init(
         dictationController: DictationController,
@@ -59,10 +75,7 @@ final class DictationHotkeyCoordinator {
         NotificationCenter.default.publisher(for: .preferencesChanged)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.ensureTap()
-                Task { @MainActor in
-                    self?.reflect(state: self?.dictationController.state ?? .idle)
-                }
+                self?.applyPreferences()
             }
             .store(in: &cancellables)
 
@@ -93,7 +106,11 @@ final class DictationHotkeyCoordinator {
     // MARK: - Event tap
 
     private func ensureTap() {
-        guard !hotkeyMonitor.isRunning else { return }
+        if hotkeyMonitor.isRunning {
+            hotkeyMonitor.updateConfig(preferencesStore.hotkey,
+                                       handsFree: preferencesStore.handsFreeEnabled)
+            return
+        }
         let ok = hotkeyMonitor.start(
             config: preferencesStore.hotkey,
             handsFree: preferencesStore.handsFreeEnabled
@@ -103,21 +120,71 @@ final class DictationHotkeyCoordinator {
         }
     }
 
+    private func applyPreferences() {
+        ensureTap()
+        // Turning hands-free off mid-session must end the latched recording,
+        // otherwise it would keep capturing until the buffer cap.
+        if !preferencesStore.handsFreeEnabled, handsFreeLatched {
+            endHandsFree()
+        }
+        Task { @MainActor in
+            self.reflect(state: self.dictationController.state)
+        }
+    }
+
     // MARK: - Hotkey events
 
     private func handleHotkey(_ event: HotkeyMonitor.Event) async {
         switch event {
         case .keyDown:
+            cancelPendingStop()
+            // A press while latched is the first half of the "stop" tap.
+            guard !handsFreeLatched else { return }
             await pressDown()
+
         case .keyUp:
-            dictationController.stopRecording()
+            if suppressNextKeyUp {
+                // Release that completes the double-tap that started the session.
+                suppressNextKeyUp = false
+                return
+            }
+            if handsFreeLatched {
+                endHandsFree()
+                return
+            }
+            scheduleStop()
+
         case .doubleTap:
-            await pressDown(toggle: true)
+            cancelPendingStop()
+            if handsFreeLatched {
+                endHandsFree()
+            } else {
+                await beginHandsFree()
+            }
         }
     }
 
-    /// Starts (or hands-free toggles) recording, requesting mic access first.
-    private func pressDown(toggle: Bool = false) async {
+    /// Stops a latched session and blocks an immediate restart.
+    ///
+    /// Stopping is a single tap: down (ignored while latched) then up. Without
+    /// the block, a user who taps twice to stop would fire a second `.keyDown`
+    /// inside the double-tap window and start a brand-new recording.
+    private func endHandsFree() {
+        handsFreeLatched = false
+        suppressNextKeyUp = false
+        cancelPendingStop()
+        startBlockedUntil = Date().addingTimeInterval(Self.stopDeferral)
+        dictationController.stopRecording()
+    }
+
+    /// Starts (or hands-free latches) recording, requesting mic access first.
+    private func pressDown() async {
+        guard dictationController.state == .idle else { return }
+        guard !isStarting else { return }
+        guard Date() >= startBlockedUntil else { return }
+        isStarting = true
+        defer { isStarting = false }
+
         // Mic gate: prompt on first use so the app appears in
         // System Settings → Privacy → Microphone.
         if !permissionsManager.hasMicrophonePermission {
@@ -127,11 +194,43 @@ final class DictationHotkeyCoordinator {
                 return
             }
         }
-        if toggle {
-            dictationController.toggleHandsFree()
-        } else {
-            dictationController.startRecording()
+        dictationController.startRecording()
+    }
+
+    private func beginHandsFree() async {
+        switch dictationController.state {
+        case .idle:
+            await pressDown()
+            guard dictationController.state == .recording else { return }
+        case .recording:
+            break
+        default:
+            return
         }
+        handsFreeLatched = true
+        suppressNextKeyUp = true
+    }
+
+    private func scheduleStop() {
+        cancelPendingStop()
+
+        guard preferencesStore.handsFreeEnabled else {
+            dictationController.stopRecording()
+            return
+        }
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingStop = nil
+            self.dictationController.stopRecording()
+        }
+        pendingStop = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.stopDeferral, execute: work)
+    }
+
+    private func cancelPendingStop() {
+        pendingStop?.cancel()
+        pendingStop = nil
     }
 
     // MARK: - Pill
@@ -151,13 +250,17 @@ final class DictationHotkeyCoordinator {
         panel.updateState(
             state,
             level: dictationController.audioLevel,
-            duration: dictationController.recordingDuration
+            duration: dictationController.recordingDuration,
+            hotkey: preferencesStore.hotkey.shortLabel
         )
 
         switch state {
-        case .recording, .transcribing, .inserting, .error:
+        case .recording:
             panel.show(at: preferencesStore.pillPosition)
             startMeter()
+        case .transcribing, .inserting, .error:
+            panel.show(at: preferencesStore.pillPosition)
+            stopMeter()
         case .idle:
             stopMeter()
             if preferencesStore.showFloatingPillAlways {
@@ -194,7 +297,8 @@ final class DictationHotkeyCoordinator {
                 pill.updateState(
                     self.dictationController.state,
                     level: self.dictationController.audioLevel,
-                    duration: self.dictationController.recordingDuration
+                    duration: self.dictationController.recordingDuration,
+                    hotkey: self.preferencesStore.hotkey.shortLabel
                 )
             }
         }

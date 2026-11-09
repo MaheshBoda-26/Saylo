@@ -9,6 +9,7 @@ public struct MenuBarView: View {
     @EnvironmentObject private var preferencesStore: PreferencesStore
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var dictionaryStore: DictionaryStore
+    @EnvironmentObject private var permissionsManager: PermissionsManager
 
     @State private var showingSettings = false
 
@@ -45,20 +46,22 @@ public struct MenuBarView: View {
             VStack(spacing: 0) {
                 PopoverRow(
                     label: "Push-to-Talk Key",
-                    value: "Hold \(shortHotkey)",
+                    value: "Hold \(preferencesStore.hotkey.shortLabel)",
                     isHighlighted: true
                 )
                 PopoverRow(
                     label: "Hands-Free Lock",
-                    value: preferencesStore.handsFreeEnabled ? "Double-tap \(shortHotkey)" : "Off"
+                    value: preferencesStore.handsFreeEnabled
+                        ? "Double-tap \(preferencesStore.hotkey.shortLabel)"
+                        : "Off"
                 )
                 PopoverRow(
                     label: "Microphone",
-                    value: "MacBook Air Mic"
+                    value: AppInfo.defaultInputName
                 )
                 PopoverRow(
                     label: "Language",
-                    value: "Auto-Detect (\(SupportedLanguage.allCases.count))",
+                    value: languageLabel,
                     showDivider: false
                 )
             }
@@ -93,7 +96,6 @@ public struct MenuBarView: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut(",")
 
                 Button {
                     NSApp.terminate(nil)
@@ -126,6 +128,7 @@ public struct MenuBarView: View {
                 .environmentObject(preferencesStore)
                 .environmentObject(historyStore)
                 .environmentObject(dictionaryStore)
+                .environmentObject(permissionsManager)
         }
     }
 
@@ -148,11 +151,9 @@ public struct MenuBarView: View {
         }
     }
 
-    private var shortHotkey: String {
-        switch preferencesStore.hotkey {
-        case .fn: return "Fn"
-        case .rightOption: return "⌥"
-        }
+    private var languageLabel: String {
+        let selected = preferencesStore.selectedLanguage
+        return selected == .auto ? "Auto-detect" : selected.displayName
     }
 
     private func toggleDictation() {

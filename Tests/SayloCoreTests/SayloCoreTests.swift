@@ -2,6 +2,8 @@ import Foundation
 import Testing
 @testable import SayloCore
 
+// MARK: - Chunking
+
 @Test func chunkerKeepsShortAudioWhole() {
     let pcm = [Float](repeating: 0.1, count: 16_000 * 10)
     #expect(AudioChunker.chunk(pcm).count == 1)
@@ -16,6 +18,22 @@ import Testing
     #expect(chunks.reduce(0) { $0 + $1.count } == pcm.count)
     #expect(abs(chunks[0].count - 16_000 * 27) < 4_000)
 }
+
+/// Regression: a search window at least as long as the chunk used to move the
+/// cut behind `start`, so `start` walked backwards and the loop never ended.
+@Test func chunkerTerminatesWithOversizedSearchWindow() {
+    let pcm = [Float](repeating: 0.1, count: 16_000 * 70)
+    let chunks = AudioChunker.chunk(pcm, maxSeconds: 30, searchSeconds: 60)
+    #expect(chunks.reduce(0) { $0 + $1.count } == pcm.count)
+    #expect(chunks.allSatisfy { $0.count <= 16_000 * 30 })
+}
+
+@Test func chunkerHandlesEmptyAndShortInput() {
+    #expect(AudioChunker.chunk([]).flatMap { $0 }.isEmpty)
+    #expect(AudioChunker.chunk([0.1, 0.2]).count == 1)
+}
+
+// MARK: - Text cleanup
 
 @Test func postProcessorCleansText() {
     let p = TextPostProcessor(replacements: ["salo": "Saylo"])
@@ -42,6 +60,56 @@ import Testing
 @Test func parsesEngineJSON() throws {
     let t = try WhistleEngine.parse(#"{"text":"hi","language":"en","ttft_ms":12.5,"decode_tps":900}"#)
     #expect(t == Transcript(text: "hi", language: "en", ttftMs: 12.5))
+}
+
+@Test func unparseableEngineJSONThrows() {
+    #expect(throws: WhistleError.self) {
+        try WhistleEngine.parse("not json")
+    }
+}
+
+// MARK: - Corrections
+
+/// The regression this guards: a "word" entry maps a phrase onto itself, and the
+/// old `firstMatch` loop replaced it with itself forever — freezing the app.
+@Test func correctionsTerminateWhenReplacementMatchesPattern() {
+    let pairs = [CorrectionPair(pattern: "\\bSaylo\\b", replacement: "Saylo")]
+    let result = CorrectionEngine.apply(pairs, to: "saylo saylo saylo")
+    #expect(result.text == "Saylo Saylo Saylo")
+    #expect(result.applied.count == 3)
+}
+
+@Test func correctionsReplacePhrase() {
+    let pairs = [CorrectionPair(pattern: "\\bkubernetes\\b", replacement: "Kubernetes")]
+    let result = CorrectionEngine.apply(pairs, to: "i deployed kubernetes today")
+    #expect(result.text == "i deployed Kubernetes today")
+}
+
+@Test func correctionsNeverReapplyToTheirOwnOutput() {
+    // If the output were fed back through the rules this would become
+    // "the cat dog dog sat".
+    let pairs = [CorrectionPair(pattern: "\\bcat\\b", replacement: "cat dog")]
+    let result = CorrectionEngine.apply(pairs, to: "the cat sat")
+    #expect(result.text == "the cat dog sat")
+}
+
+@Test func correctionsPreferTheLongestMatch() {
+    let pairs = [
+        CorrectionPair(pattern: "\\bClaude\\b", replacement: "C"),
+        CorrectionPair(pattern: "\\bClaude Code\\b", replacement: "Claude Code"),
+    ]
+    let result = CorrectionEngine.apply(pairs, to: "open Claude Code now")
+    #expect(result.text == "open Claude Code now")
+}
+
+@Test func correctionsPreserveCapitalisation() {
+    let pairs = [CorrectionPair(pattern: "\\bsaylo\\b", replacement: "Saylo")]
+    #expect(CorrectionEngine.apply(pairs, to: "Saylo is saylo").text == "Saylo is Saylo")
+}
+
+@Test func correctionsIgnoreInvalidPatterns() {
+    let pairs = [CorrectionPair(pattern: "(", replacement: "x")]
+    #expect(CorrectionEngine.apply(pairs, to: "unchanged").text == "unchanged")
 }
 
 // MARK: - Silence rejection
@@ -130,11 +198,18 @@ private struct SplitMix64 {
     #expect(SpeechActivity.meterLevel(rms: 0.1) > 0.6)
 }
 
-@Test func transcribesRealClip() async throws {
+// MARK: - Engine integration
+//
+// These need the vendored model and clip. `vendor/` is not checked in, so the
+// tests are skipped (not silently passed) when setup.sh has not been run.
+
+private let fixturesAvailable = FileManager.default.fileExists(atPath: "vendor/whistle.cact")
+    && FileManager.default.fileExists(atPath: "vendor/test.wav")
+
+@Test(.enabled(if: fixturesAvailable))
+func transcribesRealClip() async throws {
     let model = URL(fileURLWithPath: "vendor/whistle.cact")
     let clip = URL(fileURLWithPath: "vendor/test.wav")
-    guard FileManager.default.fileExists(atPath: model.path),
-          FileManager.default.fileExists(atPath: clip.path) else { return }
     let engine = try WhistleEngine(modelURL: model)
     let t = try await engine.transcribe(try AudioRecorder.load(url: clip), keywords: ["Saylo"])
     #expect(t.language == "en")
@@ -147,9 +222,9 @@ private struct SplitMix64 {
 /// The other half of the gate: real speech must still clear it. `silenceIsNotSpeech`
 /// only proves noise is rejected; if the threshold sat above a normal recording the
 /// app would silently drop real dictation.
-@Test func realSpeechClearsTheGate() throws {
+@Test(.enabled(if: fixturesAvailable))
+func realSpeechClearsTheGate() throws {
     let clip = URL(fileURLWithPath: "vendor/test.wav")
-    guard FileManager.default.fileExists(atPath: clip.path) else { return }
     let pcm = try AudioRecorder.load(url: clip)
     #expect(SpeechActivity.containsSpeech(pcm))
     #expect(SpeechActivity.peakWindowRMS(pcm) > SpeechActivity.speechThreshold)

@@ -10,11 +10,13 @@ public struct Transcript: Sendable, Equatable {
 public enum WhistleError: Error, CustomStringConvertible {
     case modelNotFound(String)
     case engine(String)
+    case outputTooLong(Int)
 
     public var description: String {
         switch self {
         case .modelNotFound(let p): return "Whistle model not found at \(p)"
         case .engine(let m): return "Whistle engine error: \(m)"
+        case .outputTooLong(let capacity): return "Whistle output exceeded the \(capacity)-byte buffer"
         }
     }
 }
@@ -23,12 +25,20 @@ public enum WhistleError: Error, CustomStringConvertible {
 /// non-thread-safe speech model, so all access is serialized through this actor.
 public actor WhistleEngine {
     public static let sampleRate = 16_000
-    public static let maxSamples = 30 * sampleRate
+
+    /// Output buffer for one transcription. 30 s of speech is a few kilobytes of
+    /// JSON; 64 KB leaves two orders of magnitude of headroom.
+    private static let outputCapacity = 64 * 1024
 
     public init(modelURL: URL) throws {
-        guard let data = try? Data(contentsOf: modelURL) else {
+        let data: Data
+        do {
+            data = try Data(contentsOf: modelURL)
+        } catch {
             throw WhistleError.modelNotFound(modelURL.path)
         }
+        guard !data.isEmpty else { throw WhistleError.modelNotFound(modelURL.path) }
+
         let rc = data.withUnsafeBytes { buf in
             needle_load(buf.bindMemory(to: UInt8.self).baseAddress, UInt64(buf.count))
         }
@@ -56,7 +66,8 @@ public actor WhistleEngine {
 
     private func transcribeChunk(_ pcm: [Float], language: String?, keywords: [String]) throws -> Transcript {
         guard !pcm.isEmpty else { return Transcript(text: "", language: "", ttftMs: 0) }
-        var out = [CChar](repeating: 0, count: 64 * 1024)
+
+        var out = [CChar](repeating: 0, count: Self.outputCapacity)
         let kw = keywords.isEmpty ? nil : keywords.joined(separator: "\n")
         let rc = pcm.withUnsafeBufferPointer { p in
             out.withUnsafeMutableBufferPointer { o in
@@ -68,7 +79,14 @@ public actor WhistleEngine {
             }
         }
         if rc < 0 { throw WhistleError.engine(Self.lastError()) }
-        let json = out.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }
+
+        // The engine writes a NUL-terminated string, but never trust it to have
+        // terminated inside the buffer: read up to the terminator, and treat a
+        // full buffer as a failure rather than reading past the allocation.
+        let terminator = out.firstIndex(of: 0) ?? out.count
+        guard terminator < out.count else { throw WhistleError.outputTooLong(out.count) }
+
+        let json = String(decoding: out[..<terminator].map { UInt8(bitPattern: $0) }, as: UTF8.self)
         return try Self.parse(json)
     }
 

@@ -7,6 +7,7 @@ import SayloCore
 /// A floating NSPanel that shows the dictation state with live waveform.
 public final class FloatingPillPanel: NSPanel {
     private var hostingView: NSHostingView<PillContent>?
+    private var pendingHide: DispatchWorkItem?
 
     public init() {
         super.init(
@@ -23,12 +24,13 @@ public final class FloatingPillPanel: NSPanel {
         self.hasShadow = true
         self.ignoresMouseEvents = true
         self.animationBehavior = .utilityWindow
+        self.alphaValue = 0
 
         setupContent()
     }
 
     private func setupContent() {
-        let content = PillContent()
+        let content = PillContent(state: .idle, level: 0, duration: 0, hotkey: "fn")
         let hosting = NSHostingView(rootView: content)
         hosting.frame = self.contentView?.bounds ?? .zero
         hosting.autoresizingMask = [.width, .height]
@@ -36,57 +38,81 @@ public final class FloatingPillPanel: NSPanel {
         self.hostingView = hosting
     }
 
-    public func updateState(_ state: DictationController.DictationState, level: Float, duration: TimeInterval) {
-        DispatchQueue.main.async {
-            self.hostingView?.rootView.update(state: state, level: level, duration: duration)
+    /// Replaces the hosted root view. SwiftUI diffs the new value, so no
+    /// out-of-band state mutation is needed.
+    public func updateState(_ state: DictationController.DictationState,
+                            level: Float,
+                            duration: TimeInterval,
+                            hotkey: String) {
+        DispatchQueue.main.async { [weak self] in
+            self?.hostingView?.rootView = PillContent(
+                state: state,
+                level: level,
+                duration: duration,
+                hotkey: hotkey
+            )
         }
     }
 
     public func show(at position: PillPosition) {
-        guard let screen = NSScreen.main else { return }
+        pendingHide?.cancel()
+        pendingHide = nil
 
+        guard let screen = NSScreen.main else { return }
+        let visible = screen.visibleFrame
         let frame = self.frame
         let newOrigin: CGPoint
 
         switch position {
         case .bottomCenter:
             newOrigin = CGPoint(
-                x: (screen.visibleFrame.width - frame.width) / 2,
-                y: screen.visibleFrame.minY + 60
+                x: visible.minX + (visible.width - frame.width) / 2,
+                y: visible.minY + 60
             )
         case .topCenter:
             newOrigin = CGPoint(
-                x: (screen.visibleFrame.width - frame.width) / 2,
-                y: screen.visibleFrame.maxY - frame.height - 60
+                x: visible.minX + (visible.width - frame.width) / 2,
+                y: visible.maxY - frame.height - 60
             )
         case .cursor:
-            let mouseLocation = NSEvent.mouseLocation
-            newOrigin = CGPoint(
-                x: mouseLocation.x - frame.width / 2,
-                y: mouseLocation.y - frame.height - 20
-            )
+            let mouse = NSEvent.mouseLocation
+            let x = min(max(mouse.x - frame.width / 2, visible.minX + 8),
+                        visible.maxX - frame.width - 8)
+            let y = min(max(mouse.y - frame.height - 20, visible.minY + 8),
+                        visible.maxY - frame.height - 8)
+            newOrigin = CGPoint(x: x, y: y)
         }
 
         self.setFrameOrigin(newOrigin)
+        self.alphaValue = 1
         self.orderFrontRegardless()
-        self.animator().alphaValue = 1.0
     }
 
     public func hide() {
-        self.animator().alphaValue = 0.0
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        pendingHide?.cancel()
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
             self.orderOut(nil)
+            self.pendingHide = nil
         }
+        pendingHide = work
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            self.animator().alphaValue = 0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
     }
 }
 
 // MARK: - Pill Content View
 
 private struct PillContent: View {
-    @State private var state: DictationController.DictationState = .idle
-    @State private var level: Float = 0
-    @State private var duration: TimeInterval = 0
-    @State private var waveformPhase: CGFloat = 0
+    let state: DictationController.DictationState
+    let level: Float
+    let duration: TimeInterval
+    let hotkey: String
 
     var body: some View {
         ZStack {
@@ -161,7 +187,7 @@ private struct PillContent: View {
                     weight: DesignSystem.Typography.weightMedium
                 ))
                 .foregroundStyle(DesignSystem.Color.surface)
-            Text(hotkeyDisplay)
+            Text(hotkey)
                 .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                 .foregroundStyle(DesignSystem.Color.surface.opacity(DesignSystem.Opacity.strong))
                 .padding(.horizontal, 6)
@@ -175,7 +201,7 @@ private struct PillContent: View {
     @ViewBuilder
     private var recordingView: some View {
         HStack(spacing: DesignSystem.Spacing.s2) {
-            WaveformView(level: level, phase: waveformPhase)
+            WaveformView(level: level)
                 .frame(width: 44, height: 24)
 
             Text("Listening…")
@@ -185,26 +211,14 @@ private struct PillContent: View {
                 ))
                 .foregroundStyle(DesignSystem.Color.surface)
 
-            Text(formatDuration(duration))
+            Text(Self.formatDuration(duration))
                 .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                 .monospacedDigit()
                 .foregroundStyle(DesignSystem.Color.accent)
         }
-        .onAppear {
-            startWaveformAnimation()
-        }
     }
 
-    private func startWaveformAnimation() {
-        // Use a repeating timer to drive the waveform animation
-        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            withAnimation(.linear(duration: 1.0)) {
-                waveformPhase = waveformPhase >= 1.0 ? 0.0 : 1.0
-            }
-        }
-    }
-
-    /// Inference — Paper State 03: waveform-loader + "Processing… · ~11ms TTFT"
+    /// Inference — Paper State 03: waveform-loader + "Processing…"
     @ViewBuilder
     private var transcribingView: some View {
         HStack(spacing: DesignSystem.Spacing.s2) {
@@ -215,9 +229,6 @@ private struct PillContent: View {
                     weight: DesignSystem.Typography.weightMedium
                 ))
                 .foregroundStyle(DesignSystem.Color.surface)
-            Text("~11ms TTFT")
-                .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
-                .foregroundStyle(DesignSystem.Color.surface.opacity(DesignSystem.Opacity.muted))
         }
     }
 
@@ -240,51 +251,46 @@ private struct PillContent: View {
         }
     }
 
-    private var hotkeyDisplay: String {
-        "fn"
-    }
-
-    private func formatDuration(_ interval: TimeInterval) -> String {
+    private static func formatDuration(_ interval: TimeInterval) -> String {
         let minutes = Int(interval) / 60
         let seconds = Int(interval) % 60
         let tenths = Int((interval.truncatingRemainder(dividingBy: 1)) * 10)
         return String(format: "%d:%02d.%d", minutes, seconds, tenths)
     }
-
-    mutating func update(state: DictationController.DictationState, level: Float, duration: TimeInterval) {
-        self.state = state
-        self.level = level
-        self.duration = duration
-    }
 }
 
 // MARK: - Waveform View
 
+/// Live input meter. The animation phase comes from `TimelineView`, so no timer
+/// has to be created — or remembered to be invalidated — per appearance.
 private struct WaveformView: View {
     let level: Float
-    let phase: CGFloat
-    let barCount = 20
+    private let barCount = 20
 
     var body: some View {
-        GeometryReader { geometry in
-            HStack(alignment: .center, spacing: 2) {
-                ForEach(0..<barCount, id: \.self) { i in
-                    let height = barHeight(for: i, maxHeight: geometry.size.height)
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(DesignSystem.Color.accent)
-                        .frame(width: 3, height: height)
-                        .animation(.linear(duration: 0.05), value: level)
+        TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate
+                .truncatingRemainder(dividingBy: 1)
+
+            GeometryReader { geometry in
+                HStack(alignment: .center, spacing: 2) {
+                    ForEach(0..<barCount, id: \.self) { index in
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(DesignSystem.Color.accent)
+                            .frame(width: 3, height: barHeight(for: index,
+                                                               maxHeight: geometry.size.height,
+                                                               phase: phase))
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .accessibilityHidden(true)
     }
 
-    private func barHeight(for index: Int, maxHeight: CGFloat) -> CGFloat {
-        // Create a wave pattern based on phase and level
+    private func barHeight(for index: Int, maxHeight: CGFloat, phase: Double) -> CGFloat {
         let normalizedIndex = CGFloat(index) / CGFloat(barCount - 1)
-        let wave = sin(normalizedIndex * .pi * 2 + phase * .pi * 2)
+        let wave = sin(normalizedIndex * .pi * 2 + CGFloat(phase) * .pi * 2)
         let baseHeight: CGFloat = maxHeight * 0.3
         let variableHeight = maxHeight * 0.7 * CGFloat(level) * abs(wave) * 0.5 + 0.5
         return max(2, baseHeight + variableHeight)

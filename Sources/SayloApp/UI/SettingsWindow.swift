@@ -5,7 +5,6 @@ import DesignSystem
 /// 840×580 modal, 230pt sidebar, serif content title,
 /// grouped cards with hairline dividers and Paper toggles.
 public struct SettingsWindow: View {
-    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var preferencesStore: PreferencesStore
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var dictionaryStore: DictionaryStore
@@ -59,12 +58,14 @@ public struct SettingsWindow: View {
                 }
                 Spacer(minLength: 0)
                 VStack(alignment: .leading, spacing: DesignSystem.Spacing.s1) {
-                    Text("Saylo v1.0.0 (Apple M2)")
+                    Text("Saylo v\(AppInfo.version)")
                         .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
                         .foregroundStyle(DesignSystem.Color.muted)
-                    Text("Cactus Whistle 16.9 MB")
-                        .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
-                        .foregroundStyle(DesignSystem.Color.accent)
+                    if let modelSize = AppInfo.modelSize {
+                        Text("Cactus Whistle · \(modelSize)")
+                            .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
+                            .foregroundStyle(DesignSystem.Color.accent)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -250,6 +251,11 @@ private struct SystemPane: View {
                         .toggleStyle(SayloToggleStyle())
                         .labelsHidden()
                 }
+                PaperRow(label: "Show menu bar icon") {
+                    Toggle("", isOn: $preferencesStore.showMenuBarIcon)
+                        .toggleStyle(SayloToggleStyle())
+                        .labelsHidden()
+                }
                 PaperRow(label: "Show app in dock", showDivider: false) {
                     Toggle("", isOn: $preferencesStore.showInDock)
                         .toggleStyle(SayloToggleStyle())
@@ -265,8 +271,8 @@ private struct SystemPane: View {
                         .toggleStyle(SayloToggleStyle())
                         .labelsHidden()
                 }
-                PaperRow(label: "Mute all audio while dictating", showDivider: false) {
-                    Toggle("", isOn: $preferencesStore.muteAudioWhileDictating)
+                PaperRow(label: "Save dictation history", showDivider: false) {
+                    Toggle("", isOn: $preferencesStore.storeHistory)
                         .toggleStyle(SayloToggleStyle())
                         .labelsHidden()
                 }
@@ -283,7 +289,7 @@ private struct MicrophonePane: View {
             PaneTitle("Input")
             SayloGroupCard {
                 PaperRow(label: "Microphone", showDivider: false) {
-                    Text("MacBook Air Mic")
+                    Text(AppInfo.defaultInputName)
                         .font(DesignSystem.Typography.sans(DesignSystem.Typography.base))
                         .foregroundStyle(DesignSystem.Color.ink)
                 }
@@ -310,9 +316,9 @@ private struct WhistlePane: View {
             PaneTitle("On-Device Engine")
             SayloGroupCard {
                 PaperRow(label: "Model") {
-                    Text("whistle.cact · 16.9 MB")
+                    Text(AppInfo.modelSize.map { "whistle.cact · \($0)" } ?? "whistle.cact · missing")
                         .font(DesignSystem.Typography.mono(DesignSystem.Typography.sm))
-                        .foregroundStyle(DesignSystem.Color.ink)
+                        .foregroundStyle(AppInfo.modelSize == nil ? DesignSystem.Color.danger : DesignSystem.Color.ink)
                 }
                 PaperRow(label: "Languages", showDivider: false) {
                     Text("en, de, fr, es, it, nl, pl")
@@ -362,8 +368,6 @@ private struct PermissionsPane: View {
 
 extension Notification.Name {
     static let openDictionary = Notification.Name("com.saylo.openDictionary")
-    static let exportDictionary = Notification.Name("com.saylo.exportDictionary")
-    static let importDictionary = Notification.Name("com.saylo.importDictionary")
     static let clearHistory = Notification.Name("com.saylo.clearHistory")
 }
 

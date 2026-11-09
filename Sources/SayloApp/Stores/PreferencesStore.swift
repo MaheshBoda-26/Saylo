@@ -8,6 +8,9 @@ import ServiceManagement
 public final class PreferencesStore: ObservableObject {
     private let logger = Logger(subsystem: "com.saylo", category: "PreferencesStore")
 
+    /// Guards against re-entering `updateLoginItem` while reverting a failed toggle.
+    private var isUpdatingLoginItem = false
+
     // MARK: - Published Properties (backed by @AppStorage)
 
     @AppStorage("hotkey") public var hotkey: HotkeyConfig = .fn {
@@ -45,6 +48,10 @@ public final class PreferencesStore: ObservableObject {
         didSet { notifyChange() }
     }
 
+    @AppStorage("storeHistory") public var storeHistory: Bool = true {
+        didSet { notifyChange() }
+    }
+
     @AppStorage("showFloatingPillAlways") public var showFloatingPillAlways: Bool = false {
         didSet { notifyChange() }
     }
@@ -56,15 +63,16 @@ public final class PreferencesStore: ObservableObject {
         }
     }
 
-    @AppStorage("muteAudioWhileDictating") public var muteAudioWhileDictating: Bool = false {
-        didSet { notifyChange() }
-    }
-
     // MARK: - Computed
 
     public var selectedLanguage: SupportedLanguage {
         get { SupportedLanguage(rawValue: language) ?? .auto }
         set { language = newValue.rawValue }
+    }
+
+    /// Clamped so a stray value cannot disable history entirely by accident.
+    public var effectiveHistoryLimit: Int {
+        min(max(1, maxHistoryItems), 10_000)
     }
 
     // MARK: - Initialization
@@ -87,6 +95,10 @@ public final class PreferencesStore: ObservableObject {
     // MARK: - Login Item Management
 
     private func updateLoginItem() {
+        guard !isUpdatingLoginItem else { return }
+        isUpdatingLoginItem = true
+        defer { isUpdatingLoginItem = false }
+
         do {
             if launchAtLogin {
                 try SMAppService.mainApp.register()
@@ -97,6 +109,10 @@ public final class PreferencesStore: ObservableObject {
             }
         } catch {
             logger.error("Failed to update login item: \(error.localizedDescription)")
+            // The toggle must reflect what the system actually did.
+            if launchAtLogin {
+                launchAtLogin = false
+            }
         }
     }
 
@@ -118,9 +134,9 @@ public final class PreferencesStore: ObservableObject {
         pillPosition = .bottomCenter
         showMenuBarIcon = true
         maxHistoryItems = 1000
+        storeHistory = true
         showFloatingPillAlways = false
         showInDock = true
-        muteAudioWhileDictating = false
     }
 }
 

@@ -10,12 +10,15 @@ public struct MainWindow: View {
     @EnvironmentObject private var historyStore: HistoryStore
     @EnvironmentObject private var dictionaryStore: DictionaryStore
     @EnvironmentObject private var preferencesStore: PreferencesStore
+    @EnvironmentObject private var permissionsManager: PermissionsManager
+    @Environment(\.openWindow) private var openWindow
 
     @State private var tab: SayloTab = .dictation
     @State private var showingSettings = false
     /// Reference behavior: starts expanded, the title-bar toggle
     /// collapses it to an icon-only rail and back.
     @State private var sidebarExpanded = true
+    @State private var showingClearHistoryConfirm = false
 
     public init() {}
 
@@ -79,7 +82,25 @@ public struct MainWindow: View {
                 .environmentObject(preferencesStore)
                 .environmentObject(historyStore)
                 .environmentObject(dictionaryStore)
-                .environmentObject(dictationController)
+                .environmentObject(permissionsManager)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openDictionary)) { _ in
+            openWindow(id: "dictionary")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .clearHistory)) { _ in
+            showingClearHistoryConfirm = true
+        }
+        .confirmationDialog(
+            "Clear all dictation history?",
+            isPresented: $showingClearHistoryConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Clear History", role: .destructive) {
+                historyStore.clearHistory()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently removes every saved dictation.")
         }
     }
 }
@@ -363,10 +384,14 @@ private struct DictationHomeView: View {
             // Center timeline
             ScrollView {
                 VStack(alignment: .leading, spacing: DesignSystem.Spacing.s6) {
-                    Text("Welcome back, Mahesh")
+                    Text("Welcome back")
                         .font(DesignSystem.Typography.sans(28, weight: .semibold))
                         .tracking(-0.02)
                         .foregroundStyle(DesignSystem.Color.ink)
+
+                    if let startupError = dictationController.startupError {
+                        StartupErrorBanner(message: startupError)
+                    }
 
                     VStack(alignment: .leading, spacing: DesignSystem.Spacing.s3) {
                         HStack {
@@ -411,7 +436,7 @@ private struct DictationHomeView: View {
             .frame(maxWidth: .infinity)
 
             // Right widget rail (230pt)
-            WidgetRail(onViewReport: {})
+            WidgetRail()
                 .frame(width: 230)
         }
     }
@@ -432,6 +457,7 @@ private struct TimelineRow: View {
     var showDivider = true
 
     @State private var isHovered = false
+    @State private var showingDeleteConfirm = false
 
     var body: some View {
         HStack(alignment: .top, spacing: DesignSystem.Spacing.s4) {
@@ -466,14 +492,24 @@ private struct TimelineRow: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Copy")
-                    Button {
-                        historyStore.deleteEntry(entry)
+                    Menu {
+                        Button("Re-insert") {
+                            Task { await dictationController.reinsert(entry.text) }
+                        }
+                        Button("Copy") { historyStore.copyText(entry.text) }
+                        Button("Copy Raw") { historyStore.copyText(entry.rawText) }
+                        Divider()
+                        Button("Delete", role: .destructive) {
+                            showingDeleteConfirm = true
+                        }
                     } label: {
                         Image(systemName: "ellipsis")
                             .font(.system(size: 14))
                             .foregroundStyle(DesignSystem.Color.muted)
                     }
-                    .buttonStyle(.plain)
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
                     .accessibilityLabel("More actions")
                 }
                 .transition(.opacity)
@@ -499,7 +535,14 @@ private struct TimelineRow: View {
             Button("Copy Raw") { historyStore.copyText(entry.rawText) }
             Button("Re-insert") { Task { await dictationController.reinsert(entry.text) } }
             Divider()
+            Button("Delete", role: .destructive) { showingDeleteConfirm = true }
+        }
+        .confirmationDialog("Delete this dictation?", isPresented: $showingDeleteConfirm,
+                            titleVisibility: .visible) {
             Button("Delete", role: .destructive) { historyStore.deleteEntry(entry) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This cannot be undone.")
         }
     }
 
@@ -530,12 +573,37 @@ private struct EmptyTimelineView: View {
     }
 }
 
-// MARK: - Widget rail (230pt, chrome)
+/// Shown when the speech model could not be loaded at launch. The app keeps
+/// running so the rest of the UI stays usable and the problem is explainable.
+private struct StartupErrorBanner: View {
+    let message: String
 
+    var body: some View {
+        HStack(alignment: .top, spacing: DesignSystem.Spacing.s3) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(DesignSystem.Color.danger)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Speech engine unavailable")
+                    .font(DesignSystem.Typography.sans(
+                        DesignSystem.Typography.sm,
+                        weight: DesignSystem.Typography.weightSemibold
+                    ))
+                    .foregroundStyle(DesignSystem.Color.ink)
+                Text(message)
+                    .font(DesignSystem.Typography.sans(DesignSystem.Typography.sm))
+                    .foregroundStyle(DesignSystem.Color.muted)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(DesignSystem.Spacing.s4)
+        .background(DesignSystem.Color.dangerSoft)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.md))
+    }
+}
+
+// MARK: - Widget rail (230pt, chrome)
 private struct WidgetRail: View {
     @EnvironmentObject private var historyStore: HistoryStore
-
-    let onViewReport: () -> Void
 
     var body: some View {
         ScrollView {
@@ -607,14 +675,6 @@ struct InsightsContentView: View {
                     Text("Insights")
                         .sayloHeadline()
                     Spacer(minLength: 0)
-                    Button {} label: {
-                        Image(systemName: "clock")
-                            .font(.system(size: DesignSystem.Typography.sm))
-                            .foregroundStyle(DesignSystem.Color.ink)
-                            .frame(width: 32, height: 32)
-                            .background(Circle().stroke(DesignSystem.Color.line, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
                 }
 
                 // Your usage tab
@@ -637,23 +697,16 @@ struct InsightsContentView: View {
                 // Three stat cards
                 HStack(spacing: DesignSystem.Spacing.s4) {
                     InsightsCard(title: "WORDS PER MINUTE") {
-                        HStack(alignment: .firstTextBaseline, spacing: DesignSystem.Spacing.s2) {
-                            Text("\(wpm)")
-                                .font(DesignSystem.Typography.sans(
-                                    DesignSystem.Typography.xl,
-                                    weight: DesignSystem.Typography.weightBold
-                                ))
-                                .tracking(DesignSystem.Typography.trackingTight)
-                                .foregroundStyle(DesignSystem.Color.ink)
-                            Text("Top 4%")
-                                .font(DesignSystem.Typography.mono(DesignSystem.Typography.micro))
-                                .foregroundStyle(DesignSystem.Color.accent)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(DesignSystem.Color.accentSoft)
-                                .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.sm))
-                        }
-                        SayloProgressBar(value: 0.78)
+                        Text(wpm > 0 ? "\(wpm)" : "—")
+                            .font(DesignSystem.Typography.sans(
+                                DesignSystem.Typography.xl,
+                                weight: DesignSystem.Typography.weightBold
+                            ))
+                            .tracking(DesignSystem.Typography.trackingTight)
+                            .foregroundStyle(DesignSystem.Color.ink)
+                        Text(wpm > 0 ? "across \(historyStore.entries.count) dictations" : "No dictations yet")
+                            .font(DesignSystem.Typography.sans(DesignSystem.Typography.xs))
+                            .foregroundStyle(DesignSystem.Color.muted)
                     }
 
                     InsightsCard(title: "FIXES MADE BY SAYLO") {
@@ -664,15 +717,12 @@ struct InsightsContentView: View {
                             ))
                             .tracking(DesignSystem.Typography.trackingTight)
                             .foregroundStyle(DesignSystem.Color.ink)
-                        VStack(alignment: .leading, spacing: DesignSystem.Spacing.s1) {
-                            Text("\(wordsCorrected) words corrected")
-                            Text("\(dictionaryFixes) dictionary fixes")
-                        }
-                        .font(DesignSystem.Typography.sans(DesignSystem.Typography.xs))
-                        .foregroundStyle(DesignSystem.Color.muted)
+                        Text(fixesTotal == 1 ? "correction applied" : "corrections applied")
+                            .font(DesignSystem.Typography.sans(DesignSystem.Typography.xs))
+                            .foregroundStyle(DesignSystem.Color.muted)
                     }
 
-                    InsightsCard(title: "TOTAL WORDS DICTATED", trend: "↗ 1.4K% this month") {
+                    InsightsCard(title: "TOTAL WORDS DICTATED") {
                         Text("\(totalWords.formatted(.number.grouping(.automatic)))")
                             .font(DesignSystem.Typography.sans(
                                 DesignSystem.Typography.xl,
@@ -680,11 +730,11 @@ struct InsightsContentView: View {
                             ))
                             .tracking(DesignSystem.Typography.trackingTight)
                             .foregroundStyle(DesignSystem.Color.ink)
-                        Text("You've written \(scriptsEquivalent) short film scripts!")
-                            .font(DesignSystem.Typography.serif(DesignSystem.Typography.sm))
-                            .italic()
+                        Text(totalWords == 0
+                             ? "Dictate anywhere to start counting."
+                             : "\(historyStore.entries.count) dictations saved")
+                            .font(DesignSystem.Typography.sans(DesignSystem.Typography.xs))
                             .foregroundStyle(DesignSystem.Color.muted)
-                        SayloProgressBar(value: 0.82, height: 8)
                     }
                 }
 
@@ -746,19 +796,13 @@ struct InsightsContentView: View {
 
     private var wpm: Int {
         let mins = historyStore.entries.reduce(0.0) { $0 + $1.durationSec } / 60.0
-        guard mins > 0.05, totalWords > 0 else { return 95 }
+        guard mins > 0.05, totalWords > 0 else { return 0 }
         return Int(Double(totalWords) / mins)
     }
 
     private var fixesTotal: Int {
-        let corrections = historyStore.entries.reduce(0) { $0 + $1.correctionsApplied.count }
-        return max(corrections, 0)
+        historyStore.entries.reduce(0) { $0 + $1.correctionsApplied.count }
     }
-
-    private var wordsCorrected: Int { fixesTotal }
-    private var dictionaryFixes: Int { 0 }
-
-    private var scriptsEquivalent: Int { max(1, totalWords / 4500) }
 
     private var streak: Int {
         EntryStats.dayStreak(for: historyStore.entries.map(\.date))
@@ -892,12 +936,14 @@ private struct UsageHeatmap: View {
         var lastLabelledColumn = -minimumColumnGap
 
         return grid.enumerated().map { index, column in
-            defer { lastLabelledColumn = index }
             guard index - lastLabelledColumn >= minimumColumnGap else { return nil }
             guard let first = column.compactMap({ $0 }).first?.date else { return nil }
-            let previous = cal.date(byAdding: .day, value: -7, to: first)
-            guard let previous,
-                  cal.component(.month, from: previous) != cal.component(.month, from: first) else { return nil }
+            guard let previous = cal.date(byAdding: .day, value: -7, to: first),
+                  cal.component(.month, from: previous) != cal.component(.month, from: first) else {
+                return nil
+            }
+            // Only a label that is actually emitted consumes the gap.
+            lastLabelledColumn = index
             return f.string(from: first)
         }
     }
@@ -1033,18 +1079,16 @@ enum EntryStats {
         text.split(whereSeparator: { $0.isWhitespace }).count
     }
 
-    static func duration(_ interval: TimeInterval) -> String {
-        let minutes = Int(interval) / 60
-        let seconds = Int(interval) % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
-
     static func appName(for entry: DictationEntry) -> String {
-        if let bundleID = entry.appBundleID,
-           let name = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.localizedName {
+        guard let bundleID = entry.appBundleID else { return "Unknown" }
+        if let name = NSRunningApplication
+            .runningApplications(withBundleIdentifier: bundleID)
+            .first?.localizedName {
             return name
         }
-        return entry.appBundleID.map { ($0 as NSString).lastPathComponent } ?? "Unknown"
+        // "com.apple.dt.Xcode" → "Xcode"
+        let tail = bundleID.split(separator: ".").last.map(String.init) ?? bundleID
+        return tail.prefix(1).uppercased() + tail.dropFirst()
     }
 
     /// Consecutive days with at least one entry, ending today/yesterday.

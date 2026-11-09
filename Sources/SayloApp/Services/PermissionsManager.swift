@@ -1,5 +1,6 @@
-import Foundation
 import AppKit
+import AVFoundation
+import Foundation
 import os.log
 
 /// Manages microphone and accessibility permissions.
@@ -25,11 +26,10 @@ public final class PermissionsManager: ObservableObject {
         logger.info("Permissions - Mic: \(self.hasMicrophonePermission), Accessibility: \(self.hasAccessibilityPermission)")
     }
 
+    @discardableResult
     public func requestMicrophonePermission() async -> Bool {
         let granted = await AVCaptureDevice.requestAccess(for: .audio)
-        await MainActor.run {
-            self.hasMicrophonePermission = granted
-        }
+        hasMicrophonePermission = granted
         return granted
     }
 
@@ -38,8 +38,8 @@ public final class PermissionsManager: ObservableObject {
         AXIsProcessTrustedWithOptions(options)
         // Note: AXIsProcessTrustedWithOptions returns immediately, the prompt is async
         // We'll re-check after a delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.checkPermissions()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.checkPermissions()
         }
     }
 
@@ -54,11 +54,4 @@ public final class PermissionsManager: ObservableObject {
             NSWorkspace.shared.open(url)
         }
     }
-
-    public var allPermissionsGranted: Bool {
-        hasMicrophonePermission && hasAccessibilityPermission
-    }
 }
-
-// Need to import AVFoundation for AVCaptureDevice
-import AVFoundation

@@ -1,10 +1,32 @@
 import Foundation
-import SwiftUI
+import SayloCore
 import os.log
+
+/// How an edit treats an entry's replacement text.
+public enum ReplacementUpdate: Sendable {
+    /// Leave whatever is stored in place.
+    case unchanged
+    /// Remove the replacement (a "word" entry has none).
+    case clear
+    /// Replace it with this value.
+    case set(String)
+}
 
 /// Manages dictionary entries with JSON file persistence.
 @MainActor
 public final class DictionaryStore: ObservableObject {
+    public enum StoreError: LocalizedError {
+        case emptyPhrase
+        case emptyReplacement
+
+        public var errorDescription: String? {
+            switch self {
+            case .emptyPhrase: return "Enter a word or phrase."
+            case .emptyReplacement: return "Enter the replacement text."
+            }
+        }
+    }
+
     private let jsonStore: JSONStore
     private let logger = Logger(subsystem: "com.saylo", category: "DictionaryStore")
 
@@ -21,18 +43,19 @@ public final class DictionaryStore: ObservableObject {
     // MARK: - Public API
 
     @discardableResult
-    public func addEntry(phrase: String, replacement: String? = nil, type: DictionaryEntryType) -> DictionaryEntry {
+    public func addEntry(phrase: String, replacement: String? = nil,
+                         type: DictionaryEntryType) throws -> DictionaryEntry {
         let trimmedPhrase = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPhrase.isEmpty else { fatalError("Phrase cannot be empty") }
+        guard !trimmedPhrase.isEmpty else { throw StoreError.emptyPhrase }
 
-        if let replacement {
-            let trimmedReplacement = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedReplacement.isEmpty else { fatalError("Replacement cannot be empty") }
+        let trimmedReplacement = replacement?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if type == .correction, (trimmedReplacement?.isEmpty ?? true) {
+            throw StoreError.emptyReplacement
         }
 
         let entry = DictionaryEntry(
             phrase: trimmedPhrase,
-            replacement: replacement?.trimmingCharacters(in: .whitespacesAndNewlines),
+            replacement: trimmedReplacement?.isEmpty == true ? nil : trimmedReplacement,
             type: type
         )
 
@@ -42,20 +65,37 @@ public final class DictionaryStore: ObservableObject {
         return entry
     }
 
-    public func updateEntry(_ entry: DictionaryEntry, phrase: String? = nil, replacement: String? = nil, isEnabled: Bool? = nil) {
+    /// Applies every field change in a single write, preserving the entry's
+    /// identity and creation date.
+    public func updateEntry(_ entry: DictionaryEntry,
+                            phrase: String? = nil,
+                            replacement: ReplacementUpdate = .unchanged,
+                            type: DictionaryEntryType? = nil,
+                            isEnabled: Bool? = nil) {
         var updated = entry
+
         if let phrase {
             let trimmed = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
             updated.phrase = trimmed
         }
-        if let replacement {
-            let trimmed = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let type {
+            updated.type = type
+            // A word entry never carries a replacement.
+            if type == .word { updated.replacement = nil }
+        }
+
+        switch replacement {
+        case .unchanged:
+            break
+        case .clear:
+            updated.replacement = nil
+        case .set(let value):
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             updated.replacement = trimmed.isEmpty ? nil : trimmed
         }
-        if let isEnabled {
-            updated.isEnabled = isEnabled
-        }
+
         updated.updatedAt = Date()
         jsonStore.updateDictionaryEntry(updated)
         entries = jsonStore.dictionaryEntries
@@ -91,32 +131,33 @@ public final class DictionaryStore: ObservableObject {
         return Array(keywordsForBiasing.prefix(maxCount))
     }
 
+    /// Plain phrase → replacement pairs for `TextPostProcessor`.
+    ///
+    /// `correctionPairs` holds regular expressions and must not be handed to the
+    /// post-processor: it would escape them a second time (so they never match)
+    /// and build a nonsense Double Metaphone index from the backslashes.
+    public var phraseReplacements: [String: String] {
+        var result: [String: String] = [:]
+        for entry in entries where entry.isEnabled {
+            if let replacement = entry.replacement {
+                result[entry.phrase] = replacement
+            } else if entry.type == .word {
+                // Normalise casing without changing the word.
+                result[entry.phrase] = entry.phrase
+            }
+        }
+        return result
+    }
+
     /// Applies post-transcription corrections.
     /// Returns the corrected text and a list of corrections that were applied.
     public func applyCorrections(to text: String) -> (corrected: String, corrections: [CorrectionRecord]) {
-        var corrected = text
-        var appliedCorrections: [CorrectionRecord] = []
-
-        // Sort by pattern length descending (longest match first)
-        let sortedPairs = correctionPairs.sorted { $0.pattern.count > $1.pattern.count }
-
-        for (pattern, replacement) in sortedPairs {
-            let result = applyCorrectionPattern(
-                pattern: pattern,
-                replacement: replacement,
-                to: corrected
-            )
-            if result.didChange {
-                appliedCorrections.append(CorrectionRecord(
-                    original: result.originalMatch,
-                    corrected: replacement,
-                    type: .postCorrection
-                ))
-                corrected = result.correctedText
-            }
+        let pairs = correctionPairs.map { CorrectionPair(pattern: $0.pattern, replacement: $0.replacement) }
+        let result = CorrectionEngine.apply(pairs, to: text)
+        let records = result.applied.map {
+            CorrectionRecord(original: $0.original, corrected: $0.replacement, type: .postCorrection)
         }
-
-        return (corrected, appliedCorrections)
+        return (result.text, records)
     }
 
     /// Validates a dictionary entry and returns warnings if problematic.
@@ -174,21 +215,23 @@ public final class DictionaryStore: ObservableObject {
         var corrections: [(pattern: String, replacement: String)] = []
 
         for entry in entries where entry.isEnabled {
+            let phrase = entry.phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !phrase.isEmpty else { continue }
+
             // For keyword biasing: use the phrase as-is
-            keywords.append(entry.phrase)
+            keywords.append(phrase)
 
             // For post-correction: build patterns based on entry type
             switch entry.type {
             case .word:
                 // Word/phrase to recognize — add as correction to itself (ensures consistent casing)
-                let pattern = buildFlexiblePattern(from: entry.phrase)
-                corrections.append((pattern: pattern, replacement: entry.phrase))
+                corrections.append((pattern: buildFlexiblePattern(from: phrase), replacement: phrase))
 
             case .correction:
-                if let replacement = entry.replacement {
+                if let replacement = entry.replacement?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !replacement.isEmpty {
                     // "when you hear X, write Y" — match flexible versions of X, replace with Y
-                    let pattern = buildFlexiblePattern(from: entry.phrase)
-                    corrections.append((pattern: pattern, replacement: replacement))
+                    corrections.append((pattern: buildFlexiblePattern(from: phrase), replacement: replacement))
                 }
             }
         }
@@ -200,120 +243,20 @@ public final class DictionaryStore: ObservableObject {
     }
 
     /// Builds a regex pattern that matches the phrase with flexible spacing/hyphens between words.
-    /// "Claude Code" matches "Claude Code", "Claude-Code", "ClaudeCode", "Cloud Code", etc.
+    /// "Claude Code" matches "Claude Code", "Claude-Code", "ClaudeCode", etc.
     private func buildFlexiblePattern(from phrase: String) -> String {
         let words = phrase
-            .split(separator: " ")
+            .split(whereSeparator: { $0.isWhitespace })
             .map { NSRegularExpression.escapedPattern(for: String($0)) }
 
+        guard let first = words.first else { return "" }
         if words.count == 1 {
             // Single word: match whole word only
-            return "\\b\(words[0])\\b"
+            return "\\b\(first)\\b"
         }
 
         // Multi-word: allow optional whitespace or hyphen between parts
         let joined = words.joined(separator: "[\\s-]*")
         return "\\b\(joined)\\b"
-    }
-
-    /// Applies a single correction pattern to text.
-    private func applyCorrectionPattern(pattern: String, replacement: String, to text: String) -> (didChange: Bool, originalMatch: String, correctedText: String) {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return (false, "", text)
-        }
-
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        var correctedText = text
-        var didChange = false
-        var lastMatch = ""
-
-        // Find all matches and replace them (longest match first is handled by sorted pairs)
-        while let match = regex.firstMatch(in: correctedText, options: [], range: NSRange(correctedText.startIndex..<correctedText.endIndex, in: correctedText)) {
-            if let matchRange = Range(match.range(at: 0), in: correctedText) {
-                let matchedText = String(correctedText[matchRange])
-                lastMatch = matchedText
-
-                // Preserve case of first character if the match starts with uppercase
-                var finalReplacement = replacement
-                if matchedText.first?.isUppercase == true, let first = replacement.first {
-                    finalReplacement = String(first).uppercased() + replacement.dropFirst()
-                }
-
-                correctedText.replaceSubrange(matchRange, with: finalReplacement)
-                didChange = true
-            } else {
-                break
-            }
-        }
-
-        return (didChange, lastMatch, correctedText)
-    }
-}
-
-// MARK: - Export/Import for plain file editing
-
-public extension DictionaryStore {
-    struct ExportFormat: Codable {
-        public var entries: [ExportEntry]
-        public var exportedAt: Date
-
-        public init(entries: [DictionaryEntry]) {
-            self.entries = entries.map { ExportEntry(from: $0) }
-            self.exportedAt = Date()
-        }
-    }
-
-    struct ExportEntry: Codable {
-        public let phrase: String
-        public let replacement: String?
-        public let type: DictionaryEntryType
-        public let isEnabled: Bool
-
-        public init(from entry: DictionaryEntry) {
-            self.phrase = entry.phrase
-            self.replacement = entry.replacement
-            self.type = entry.type
-            self.isEnabled = entry.isEnabled
-        }
-    }
-
-    func export() throws -> Data {
-        let format = ExportFormat(entries: entries.filter { $0.isEnabled })
-        return try JSONEncoder().encode(format)
-    }
-
-    func importFrom(data: Data) throws -> (added: Int, updated: Int, errors: [String]) {
-        let format = try JSONDecoder().decode(ExportFormat.self, from: data)
-        var added = 0
-        var updated = 0
-        var errors: [String] = []
-
-        for exportEntry in format.entries {
-            // Check if entry exists
-            if let existing = entries.first(where: { $0.phrase.lowercased() == exportEntry.phrase.lowercased() }) {
-                // Update existing
-                var updatedEntry = existing
-                updatedEntry.replacement = exportEntry.replacement
-                updatedEntry.type = exportEntry.type
-                updatedEntry.isEnabled = exportEntry.isEnabled
-                updatedEntry.updatedAt = Date()
-                jsonStore.updateDictionaryEntry(updatedEntry)
-                updated += 1
-            } else {
-                // Add new
-                let entry = DictionaryEntry(
-                    phrase: exportEntry.phrase,
-                    replacement: exportEntry.replacement,
-                    type: exportEntry.type,
-                    isEnabled: exportEntry.isEnabled
-                )
-                jsonStore.addDictionaryEntry(entry)
-                added += 1
-            }
-        }
-
-        entries = jsonStore.dictionaryEntries
-        rebuildIndexes()
-        return (added, updated, errors)
     }
 }
